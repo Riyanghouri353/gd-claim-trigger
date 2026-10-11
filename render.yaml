@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: gd-claim-trigger
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: WALLETS_JSON
+        sync: false # Render prompts for the value at deploy time (your wallet keys — never in git)
+      - key: CHAINS
+        value: "celo,xdc,fuse"
+      - key: GD_CLAIM_URL
+        value: "https://uiwsjxfcdruvqnbgdwdd.supabase.co/functions/v1/gd-claim"
+      - key: CLAIM_TIME_UTC
+        value: "18:00"

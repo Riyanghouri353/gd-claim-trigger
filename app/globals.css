@@ -1,0 +1,127 @@
+:root {
+  --bg: #0b0f14;
+  --card: #141b24;
+  --text: #e8eef5;
+  --muted: #8a94a3;
+  --accent: #10b981;
+  --danger: #ef4444;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
+
+h1 { margin: 0 0 4px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.value { font-size: 18px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.ok { color: var(--accent); }
+.error { color: var(--danger); }
+
+code {
+  background: #1f2937;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+a { color: var(--accent); }
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.tbl th, .tbl td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid #1f2937;
+  vertical-align: top;
+}
+
+.tbl th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tbl .wallet { font-weight: 600; white-space: nowrap; }
+.tbl .detail { max-width: 260px; word-break: break-word; }
+
+.chain {
+  background: #1f2937;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.pill.running { background: #1e3a5f; color: #7cc4ff; }
+.pill.idle { background: #1f2937; color: var(--muted); }
+.pill.claimed, .pill.ok { background: #052e1b; color: #34d399; }
+.pill.skipped, .pill.warn { background: #3a2e12; color: #fbbf24; }
+.pill.failed, .pill.err { background: #3b1212; color: #f87171; }
+.pill.gas { background: #1e3a5f; color: #7cc4ff; }
+
+.btn {
+  background: var(--accent);
+  color: #04120c;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
