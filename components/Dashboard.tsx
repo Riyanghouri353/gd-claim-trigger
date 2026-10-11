@@ -29,7 +29,7 @@ interface Status {
   dbConfigured: boolean;
   dbError: string | null;
   walletsConfigured: number;
-  wallets: { label: string; chains: string[]; keyOk: boolean }[];
+  wallets: { id: string; label: string; chains: string[]; keyOk: boolean }[];
   gdClaimConfigured: boolean;
   nextRunUtc: string;
   running: boolean;
@@ -128,6 +128,16 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const now = useNow(1000);
 
+  // add-wallet form
+  const [wLabel, setWLabel] = useState('');
+  const [wKey, setWKey] = useState('');
+  const [wChains, setWChains] = useState<string[]>(['celo', 'xdc', 'fuse']);
+  const [adminSecret, setAdminSecret] = useState(
+    () => (typeof window !== 'undefined' ? sessionStorage.getItem('gd_admin') || '' : ''),
+  );
+  const [wBusy, setWBusy] = useState(false);
+  const [wMsg, setWMsg] = useState('');
+
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/status');
@@ -157,6 +167,66 @@ export default function Dashboard() {
       setBusy(false);
       load();
     }
+  }
+
+  function saveAdminSecret(v: string) {
+    setAdminSecret(v);
+    try {
+      sessionStorage.setItem('gd_admin', v);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function addWallet() {
+    setWMsg('');
+    if (!adminSecret) {
+      setWMsg('Enter the admin secret first (Render → Environment → ADMIN_SECRET).');
+      return;
+    }
+    setWBusy(true);
+    try {
+      const res = await fetch('/api/wallets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+        body: JSON.stringify({ label: wLabel, privateKey: wKey, chains: wChains }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setWMsg(`✓ "${wLabel.trim()}" stored encrypted.`);
+        setWLabel('');
+        setWKey('');
+      } else {
+        setWMsg(`✗ ${data.error || 'failed'}`);
+      }
+    } catch (e) {
+      setWMsg(`✗ ${e instanceof Error ? e.message : 'request failed'}`);
+    } finally {
+      setWBusy(false);
+      load();
+    }
+  }
+
+  async function removeWallet(id: string, label: string) {
+    if (!window.confirm(`Remove "${label}" from the vault?`)) return;
+    setWMsg('');
+    try {
+      const res = await fetch('/api/wallets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      setWMsg(data.ok ? `✓ "${label}" removed.` : `✗ ${data.error || 'failed'}`);
+    } catch (e) {
+      setWMsg(`✗ ${e instanceof Error ? e.message : 'request failed'}`);
+    } finally {
+      load();
+    }
+  }
+
+  function toggleChain(c: string) {
+    setWChains((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
   if (!s) {
@@ -257,7 +327,7 @@ export default function Dashboard() {
         ) : (
           <div className="walletlist">
             {s.wallets.map((w) => (
-              <div key={w.label} className="walletrow">
+              <div key={w.id} className="walletrow">
                 <span className="wlabel">{w.label}</span>
                 <span className="chainrow">
                   {w.chains.map((c) => (
@@ -269,10 +339,66 @@ export default function Dashboard() {
                 <span className={w.keyOk ? 'ok small' : 'error small'} title="Decrypts with PROJECT_KEY">
                   {w.keyOk ? '🔒 ✓' : '🔒 ✗'}
                 </span>
+                <button className="iconbtn" title={`Remove ${w.label}`} onClick={() => removeWallet(w.id, w.label)}>
+                  ✕
+                </button>
               </div>
             ))}
           </div>
         )}
+      </section>
+
+      {/* add wallet */}
+      <section className="card">
+        <div className="card-title">Add wallet</div>
+        <p className="muted small">
+          Stored <b>encrypted</b> (AES-256-GCM) — only the wallet name is shown here, never the key.
+        </p>
+        <div className="formgrid">
+          <label className="field">
+            <span>Wallet name</span>
+            <input
+              value={wLabel}
+              onChange={(e) => setWLabel(e.target.value)}
+              placeholder="Wallet 1"
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            <span>Private key</span>
+            <input
+              type="password"
+              value={wKey}
+              onChange={(e) => setWKey(e.target.value)}
+              placeholder="0x… (64 hex chars)"
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            <span>Admin secret</span>
+            <input
+              type="password"
+              value={adminSecret}
+              onChange={(e) => saveAdminSecret(e.target.value)}
+              placeholder="Render → Environment → ADMIN_SECRET"
+              autoComplete="off"
+            />
+          </label>
+        </div>
+        <div className="chainpick">
+          {['celo', 'xdc', 'fuse'].map((c) => (
+            <label key={c} className={`pick ${wChains.includes(c) ? 'on' : ''}`}>
+              <input type="checkbox" checked={wChains.includes(c)} onChange={() => toggleChain(c)} />
+              {c}
+            </label>
+          ))}
+        </div>
+        <div className="formrow">
+          <button className="btn primary" onClick={addWallet} disabled={wBusy}>
+            {wBusy ? 'Storing…' : '+ Store encrypted'}
+          </button>
+          {wMsg && <span className="formmsg">{wMsg}</span>}
+        </div>
       </section>
 
       {/* results */}

@@ -54,14 +54,19 @@ Dashboard → service → Environment:
 - `SUPABASE_URL` = `https://jmayjkfhmjqcxzsjyzyw.supabase.co`
 - `SUPABASE_SERVICE_KEY` = service_role key (Supabase → Project Settings → API)
 - `PROJECT_KEY` = the 64-hex from step 2
+- `ADMIN_SECRET` = any random string (guards wallet add/remove on the dashboard)
 - `CHAINS` = `celo,xdc,fuse`, `GD_CLAIM_URL` = default, `CLAIM_TIME_UTC` = `18:00`
 
-(`render.yaml` sets everything except the three secrets, which Render prompts for.)
+### 5. Add wallets from the dashboard
+Open the dashboard → **Add wallet** card: enter a wallet name + private key, pick chains,
+paste the `ADMIN_SECRET`, and hit **Store encrypted**. The key is AES-256-GCM encrypted
+server-side before insert — the dashboard only ever shows wallet names. Remove a wallet
+with the ✕ button on its row. (The `scripts/encrypt-wallets.mjs` bulk path still works too.)
 
-### 5. Keep-alive (cron-job.org, free)
+### 6. Keep-alive (cron-job.org, free)
 Every 10 minutes → `GET https://<your-service>.onrender.com/api/wake`.
 
-### 6. App
+### 7. App
 Android app → Settings → turn OFF "Automatic Background Claims".
 
 ## Deploy
