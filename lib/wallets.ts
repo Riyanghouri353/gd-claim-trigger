@@ -50,6 +50,7 @@ async function fetchRows(): Promise<SupaRow[]> {
   const { url, key } = supaEnv();
   const res = await fetch(`${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains&order=created_at`, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
+    cache: 'no-store',
   });
   if (res.status === 404)
     throw new Error('claim_wallets table not found — run supabase.sql in the Supabase SQL editor once');
@@ -109,6 +110,7 @@ export async function addWallet(input: { label: string; privateKey: string; chai
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
     },
+    cache: 'no-store',
     body: JSON.stringify({ label, encrypted_key: encryptPrivateKey(pk), chains: chains.join(',') }),
   });
   if (res.status === 404)
@@ -123,6 +125,7 @@ export async function deleteWallet(id: string): Promise<void> {
   const res = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { apikey: key, Authorization: `Bearer ${key}` },
+    cache: 'no-store',
   });
   if (!res.ok) throw new Error(`Supabase delete failed: HTTP ${res.status}`);
 }
