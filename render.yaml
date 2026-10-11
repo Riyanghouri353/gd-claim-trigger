@@ -6,8 +6,14 @@ services:
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
-      - key: WALLETS_JSON
-        sync: false # Render prompts for the value at deploy time (your wallet keys — never in git)
+      # Encrypted wallet vault (Supabase). Keys are AES-256-GCM ciphertext;
+      # only PROJECT_KEY (below) can decrypt them.
+      - key: SUPABASE_URL
+        value: "https://jmayjkfhmjqcxzsjyzyw.supabase.co"
+      - key: SUPABASE_SERVICE_KEY
+        sync: false # Render prompts at deploy time — service_role key, keep secret
+      - key: PROJECT_KEY
+        sync: false # Render prompts at deploy time — 64-hex encryption key, keep secret
       - key: CHAINS
         value: "celo,xdc,fuse"
       - key: GD_CLAIM_URL

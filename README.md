@@ -14,45 +14,63 @@ once (`Promise.all` all the way down).
 Results are shown live on the dashboard (`/`): per-wallet table with claimed / skipped /
 failed pills, amounts, and explorer links.
 
-## Security
+## Security: encrypted wallet vault
 
-- Private keys live **only** in the `WALLETS_JSON` environment variable (Render encrypts
-  env vars at rest). They are **never** in code, never in git, never rendered in the UI.
-- Keys are sent to the `gd-claim` function per its documented security model (held in
-  server memory for one request, zeroed afterwards, never logged/stored).
-- The dashboard shows wallet **labels only** — no keys, no addresses.
+Private keys are **never stored raw** — not in code, not in git, not in env vars, not in
+the database:
+
+- Keys live in Supabase table `claim_wallets` as **AES-256-GCM ciphertext**.
+- They are decrypted **only in server memory at claim time**, using `PROJECT_KEY`.
+- The dashboard shows wallet labels + a 🔒✓/✗ decrypt health check — never keys.
+- RLS is enabled with no public policies: only the `service_role` key can read the table.
+
+**Back up your raw private keys AND your `PROJECT_KEY` somewhere safe** (password
+manager / offline). Lose `PROJECT_KEY` and the vault cannot be decrypted.
+
+## One-time setup
+
+### 1. Create the vault table
+Supabase dashboard → SQL editor → paste `supabase.sql` → Run.
+
+### 2. Generate the project key
+On your own machine:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+Save the 64-hex output in your password manager. This is `PROJECT_KEY`.
+
+### 3. Encrypt + store your wallets (local machine only)
+```bash
+PROJECT_KEY=<64-hex from step 2> \
+WALLETS_JSON='[{"label":"Wallet 1","privateKey":"0x..."}, …]' \
+node scripts/encrypt-wallets.mjs
+```
+Paste the printed `INSERT` statements into the Supabase SQL editor and run them.
+Verify: `select label, chains, created_at from claim_wallets;` — you should see labels
+but **never** plaintext keys.
+
+### 4. Render env vars
+Dashboard → service → Environment:
+- `SUPABASE_URL` = `https://jmayjkfhmjqcxzsjyzyw.supabase.co`
+- `SUPABASE_SERVICE_KEY` = service_role key (Supabase → Project Settings → API)
+- `PROJECT_KEY` = the 64-hex from step 2
+- `CHAINS` = `celo,xdc,fuse`, `GD_CLAIM_URL` = default, `CLAIM_TIME_UTC` = `18:00`
+
+(`render.yaml` sets everything except the three secrets, which Render prompts for.)
+
+### 5. Keep-alive (cron-job.org, free)
+Every 10 minutes → `GET https://<your-service>.onrender.com/api/wake`.
+
+### 6. App
+Android app → Settings → turn OFF "Automatic Background Claims".
 
 ## Deploy
 
-### 1. Push to GitHub
-Push this folder as a repo (public or private — no secrets in the code).
-
-### 2. Render
-- Dashboard → **New → Blueprint** → connect the repo (uses `render.yaml`), or
-  **New → Web Service** manually: build `npm install && npm run build`, start `npm start`, plan **Free**.
-- Environment variables:
-  - `WALLETS_JSON` = `[{"label":"Wallet 1","privateKey":"0x..."}, …]` (all 10 wallets)
-  - `CHAINS` = `celo,xdc,fuse`
-  - `GD_CLAIM_URL` = `https://uiwsjxfcdruvqnbgdwdd.supabase.co/functions/v1/gd-claim`
-  - `CLAIM_TIME_UTC` = `18:00` (daily time, HH:MM UTC)
-
-### 3. Keep-alive (cron-job.org, free)
-Create a job: every 10 minutes → `GET https://<your-service>.onrender.com/api/wake`.
-This keeps Render's free tier awake (sleeps after 15 idle minutes) and each hit is the
-clock tick — when the claim time is due, the full parallel run starts in the background
-(the heartbeat returns immediately, so no timeout can cut the run off).
-
-### 4. App
-Android app → Settings → turn OFF "Automatic Background Claims" (the server owns it now).
-
-## Local dev
-```bash
-cp .env.example .env   # fill in real values — never commit this file
-npm install
-npm run dev
-```
+- **Render**: Dashboard → New → Blueprint → connect the repo (uses `render.yaml`).
+- **Local dev**: `cp .env.example .env` (fill in) → `npm install` → `npm run dev`.
 
 ## Notes
 - A Render restart clears in-memory state (last run table) — the next run repopulates it.
 - If the faucet rejects a top-up or a chain is out of gas with no faucet (XDC), that
   chain is recorded as failed with the exact reason — other chains/wallets are unaffected.
+- The `/api/wake` heartbeat returns immediately; long claim runs execute in the background.

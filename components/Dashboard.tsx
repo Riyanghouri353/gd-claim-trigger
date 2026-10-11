@@ -26,7 +26,10 @@ interface Status {
   time: string;
   claimTimeUtc: string;
   chains: string[];
+  dbConfigured: boolean;
+  dbError: string | null;
   walletsConfigured: number;
+  wallets: { label: string; chains: string[]; keyOk: boolean }[];
   gdClaimConfigured: boolean;
   nextRunUtc: string;
   running: boolean;
@@ -205,7 +208,15 @@ export default function Dashboard() {
         </StatCard>
         <StatCard label="Wallets">
           <span className="bignum tabular">{s.walletsConfigured}</span>
-          <div className="stat-sub">configured</div>
+          <div className="stat-sub">
+            {!s.dbConfigured ? (
+              <span className="error">DB not configured</span>
+            ) : s.dbError ? (
+              <span className="error">{s.dbError.slice(0, 60)}</span>
+            ) : (
+              <>encrypted in Supabase {s.wallets.every((w) => w.keyOk) ? <span className="ok">✓</span> : <span className="error">key check failed</span>}</>
+            )}
+          </div>
         </StatCard>
         <StatCard label="Chains">
           <div className="chainrow">
@@ -231,6 +242,37 @@ export default function Dashboard() {
           </button>
           {msg && <p className="muted small msg">{msg}</p>}
         </div>
+      </section>
+
+      {/* wallets */}
+      <section className="card">
+        <div className="card-title">Wallets in vault</div>
+        {!s.dbConfigured ? (
+          <p className="muted small">
+            Supabase vault not configured — set <code>SUPABASE_URL</code>,{' '}
+            <code>SUPABASE_SERVICE_KEY</code> and <code>PROJECT_KEY</code> in Render → Environment.
+          </p>
+        ) : s.wallets.length === 0 ? (
+          <p className="muted small">No wallets stored yet. Run the migration script (see README) to add them encrypted.</p>
+        ) : (
+          <div className="walletlist">
+            {s.wallets.map((w) => (
+              <div key={w.label} className="walletrow">
+                <span className="wlabel">{w.label}</span>
+                <span className="chainrow">
+                  {w.chains.map((c) => (
+                    <span key={c} className={`chainbadge chain-${c}`}>
+                      {c}
+                    </span>
+                  ))}
+                </span>
+                <span className={w.keyOk ? 'ok small' : 'error small'} title="Decrypts with PROJECT_KEY">
+                  {w.keyOk ? '🔒 ✓' : '🔒 ✗'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* results */}

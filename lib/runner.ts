@@ -142,7 +142,7 @@ export async function runAllWallets(): Promise<RunResult> {
   running = true;
   const startedAt = new Date().toISOString();
   try {
-    const wallets = getWallets();
+    const wallets = await getWallets();
     // ALL wallets concurrently — no concurrency limit.
     const results = await Promise.all(wallets.map(runWallet));
     const finishedAt = new Date().toISOString();

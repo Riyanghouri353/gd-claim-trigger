@@ -270,6 +270,23 @@ a:hover { text-decoration: underline; }
 .tbl .wallet { font-weight: 650; white-space: nowrap; }
 .tbl .detail { max-width: 280px; word-break: break-word; }
 
+/* ---------- wallet vault list ---------- */
+
+.walletlist { display: flex; flex-direction: column; gap: 8px; }
+
+.walletrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+
+.walletrow .wlabel { font-weight: 650; min-width: 90px; }
+.walletrow .chainrow { flex: 1; }
+
 .txlink { font-family: ui-monospace, monospace; font-size: 12.5px; }
 
 .fadein { animation: fadein 0.4s ease both; }
