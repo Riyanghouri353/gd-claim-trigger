@@ -1,24 +1,13 @@
 import { NextResponse } from 'next/server';
-import { timingSafeEqual } from 'crypto';
 import { addWallet, deleteWallet } from '@/lib/wallets';
 
 export const dynamic = 'force-dynamic';
 
-// Wallet vault management. Add/delete are gated by ADMIN_SECRET (x-admin-secret
-// header) because the dashboard URL is not secret. Keys are encrypted server-side
-// with PROJECT_KEY before insert — plaintext keys never touch the database.
-
-function authorized(req: Request): boolean {
-  const secret = process.env.ADMIN_SECRET || '';
-  if (!secret) return false;
-  const got = req.headers.get('x-admin-secret') || '';
-  const a = Buffer.from(got);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+// Wallet vault management. No auth gate by owner decision: the dashboard URL is
+// the only barrier. These endpoints can only ADD (given a valid private key) or
+// DELETE wallets — they can never READ keys; list/status return names only.
 
 export async function POST(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 403 });
   try {
     const body = await req.json();
     await addWallet({ label: body.label, privateKey: body.privateKey, chains: body.chains });
@@ -30,7 +19,6 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 403 });
   try {
     const body = await req.json();
     await deleteWallet(body.id);

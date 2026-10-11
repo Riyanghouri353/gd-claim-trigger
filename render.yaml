@@ -14,8 +14,6 @@ services:
         sync: false # Render prompts at deploy time — service_role key, keep secret
       - key: PROJECT_KEY
         sync: false # Render prompts at deploy time — 64-hex encryption key, keep secret
-      - key: ADMIN_SECRET
-        sync: false # Render prompts at deploy time — guards wallet add/remove on the dashboard
       - key: CHAINS
         value: "celo,xdc,fuse"
       - key: GD_CLAIM_URL

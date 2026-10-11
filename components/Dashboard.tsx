@@ -132,9 +132,6 @@ export default function Dashboard() {
   const [wLabel, setWLabel] = useState('');
   const [wKey, setWKey] = useState('');
   const [wChains, setWChains] = useState<string[]>(['celo', 'xdc', 'fuse']);
-  const [adminSecret, setAdminSecret] = useState(
-    () => (typeof window !== 'undefined' ? sessionStorage.getItem('gd_admin') || '' : ''),
-  );
   const [wBusy, setWBusy] = useState(false);
   const [wMsg, setWMsg] = useState('');
 
@@ -169,26 +166,13 @@ export default function Dashboard() {
     }
   }
 
-  function saveAdminSecret(v: string) {
-    setAdminSecret(v);
-    try {
-      sessionStorage.setItem('gd_admin', v);
-    } catch {
-      /* ignore */
-    }
-  }
-
   async function addWallet() {
     setWMsg('');
-    if (!adminSecret) {
-      setWMsg('Enter the admin secret first (Render → Environment → ADMIN_SECRET).');
-      return;
-    }
     setWBusy(true);
     try {
       const res = await fetch('/api/wallets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: wLabel, privateKey: wKey, chains: wChains }),
       });
       const data = await res.json();
@@ -213,7 +197,7 @@ export default function Dashboard() {
     try {
       const res = await fetch('/api/wallets', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
       const data = await res.json();
@@ -371,16 +355,6 @@ export default function Dashboard() {
               value={wKey}
               onChange={(e) => setWKey(e.target.value)}
               placeholder="0x… (64 hex chars)"
-              autoComplete="off"
-            />
-          </label>
-          <label className="field">
-            <span>Admin secret</span>
-            <input
-              type="password"
-              value={adminSecret}
-              onChange={(e) => saveAdminSecret(e.target.value)}
-              placeholder="Render → Environment → ADMIN_SECRET"
               autoComplete="off"
             />
           </label>
