@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'G$ Claim Trigger',
-  description: 'Server-side scheduler for GoodDollar auto-claims',
+  title: 'G$ Claim Runner',
+  description: 'Autonomous GoodDollar claim command center — wallets, fee guard, execution logs',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
