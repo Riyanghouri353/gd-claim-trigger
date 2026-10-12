@@ -9,7 +9,7 @@
 
 import { getGdClaimUrl, getWallets, type WalletConfig } from './wallets';
 import { checkFees, getLastFeeCheck, type FeeCheckResult } from './fees';
-import { markRanDate } from './claim';
+import { markSlotsComplete } from './claim';
 
 export type ChainStatus = 'claimed' | 'skipped' | 'failed';
 
@@ -162,14 +162,16 @@ export function isRunning(): boolean {
   return running;
 }
 
-export async function runAllWallets(): Promise<RunResult> {
+/** Run the full cycle (fee guard + parallel claims).
+ *  dueSlotKeys: the schedule slots this run satisfies — marked complete on
+ *  success ONLY, so a failed run stays eligible for retry on a later tick. */
+export async function runAllWallets(dueSlotKeys: string[] = []): Promise<RunResult> {
   if (running) {
     if (!lastRun) throw new Error('a run is already in progress');
     return lastRun;
   }
   running = true;
   const startedAt = new Date().toISOString();
-  const runDate = startedAt.slice(0, 10); // the calendar day this run belongs to
   try {
     const wallets = await getWallets();
     // Phase 1 — daily CELO fee guard: top up any wallet below the threshold
@@ -194,7 +196,7 @@ export async function runAllWallets(): Promise<RunResult> {
       }
     }
     lastRun = { startedAt, finishedAt, wallets: results, summary: { claimed, skipped, failed } };
-    markRanDate(runDate); // success only — a failed run stays eligible for retry
+    markSlotsComplete(dueSlotKeys); // success only — a failed run stays eligible for retry
     return lastRun;
   } finally {
     running = false;

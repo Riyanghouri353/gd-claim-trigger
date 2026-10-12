@@ -85,7 +85,7 @@ export default function Overview({
               <ChainBadge key={c} chain={c} />
             ))}
           </div>
-          <div className="stat-sub">daily at {s.claimTimeUtc} UTC</div>
+          <div className="stat-sub">{s.claimTimesUtc.length}× daily · {s.claimTimesUtc.join(", ")} UTC</div>
         </Stat>
       </div>
 

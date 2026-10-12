@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getClaimTime, nextRunUtc } from '@/lib/claim';
+import { getClaimTimes, nextRunUtc } from '@/lib/claim';
 import { getLastFeeCheckResult, getLastRun, isRunning } from '@/lib/runner';
 import { getFeeThreshold } from '@/lib/fees';
 import { getChains, getGdClaimUrl, isDbConfigured, listWallets } from '@/lib/wallets';
@@ -22,7 +22,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     time: now.toISOString(),
-    claimTimeUtc: getClaimTime(),
+    claimTimesUtc: getClaimTimes(),
     chains: getChains(),
     dbConfigured: isDbConfigured(),
     dbError,

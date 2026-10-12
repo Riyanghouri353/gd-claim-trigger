@@ -47,7 +47,7 @@ export interface VaultWallet {
 export interface Status {
   ok: boolean;
   time: string;
-  claimTimeUtc: string;
+  claimTimesUtc: string[];
   chains: string[];
   dbConfigured: boolean;
   dbError: string | null;

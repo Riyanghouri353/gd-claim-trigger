@@ -216,7 +216,7 @@ export default function AppShell() {
         </button>
         {nav(true)}
         <div className="sidefoot">
-          <span className="muted small">daily at {status.claimTimeUtc} UTC</span>
+          <span className="muted small">{status.claimTimesUtc.length}× daily · {status.claimTimesUtc.join(", ")} UTC</span>
         </div>
       </aside>
 

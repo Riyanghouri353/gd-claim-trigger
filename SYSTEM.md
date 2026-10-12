@@ -17,15 +17,19 @@ running fully parallel with no concurrency limit.
 ## Daily flow
 
 1. cron-job.org hits `/api/wake` every 10 min.
-2. First tick at/after `CLAIM_TIME_UTC` (UTC) with no completed run today → `runAllWallets()` starts **in the background**; the tick responds immediately.
-3. **Phase 1 — fee guard:** each wallet's CELO balance is checked; below `0.13` CELO → `fundGas` via the GoodDollar faucet (address-only), wait 30s, re-check. Never fatal to claims.
-4. **Phase 2 — claims:** per wallet × chain: `status` → skip if not whitelisted / no entitlement → fund gas if short (CELO faucet) → `claim`. All concurrent.
-5. On success the calendar day is marked complete. Results + fee check persist in memory for the dashboard.
+2. The first tick at/after each time in `CLAIM_TIMES_UTC` (e.g. `18:00,22:00`) with that
+   slot not yet completed starts `runAllWallets()` **in the background**; the tick responds immediately.
+3. **Phase 1 — fee guard:** each wallet's CELO balance is checked; below `0.13` CELO →
+   `fundGas` via the GoodDollar faucet (address-only), wait 30s, re-check. Never fatal to claims.
+4. **Phase 2 — claims:** per wallet × chain: `status` → skip if not whitelisted or no
+   entitlement → fund gas if short (CELO faucet) → `claim`. All concurrent. The
+   entitlement pre-check means a wallet with nothing accrued is skipped, never claimed empty.
+5. On success all due slots are marked complete. Results + fee check persist in memory for the dashboard.
 
 ## Guarantees (failure modes)
 
-- **Late/cold tick never skips a day:** any tick at/after claim time runs once; there is no narrow trigger window.
-- **Failed runs retry:** the day is marked complete only on success — a crash leaves the next tick eligible.
+- **Late/cold tick never skips a slot:** any tick at/after a scheduled time runs it once; there is no narrow trigger window.
+- **Failed runs retry:** slots are marked complete only on success — a crash leaves the next tick eligible.
 - **One bad wallet can't kill the run:** a row that fails to decrypt is reported per-wallet; the rest proceed.
 - **No doomed claims:** after a faucet top-up, gas is re-checked before attempting `claim`.
 - **Concurrent triggers are safe:** `isRunning()` guards wake/trigger/fee endpoints (409 on manual double-trigger).
@@ -50,5 +54,6 @@ running fully parallel with no concurrency limit.
 | `PROJECT_KEY` | yes | 64-hex AES-256-GCM key |
 | `CHAINS` | no | Default chains (`celo,xdc,fuse`) |
 | `GD_CLAIM_URL` | no | gd-claim function endpoint |
-| `CLAIM_TIME_UTC` | no | Daily run time (`18:00`) |
+| `CLAIM_TIME_UTC` | no | Legacy single run time (`18:00`) — used only if `CLAIM_TIMES_UTC` is unset |
+| `CLAIM_TIMES_UTC` | no | Comma-separated daily run times, UTC (`18:00,22:00` = twice a day, 4h apart) |
 | `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.13`) |
