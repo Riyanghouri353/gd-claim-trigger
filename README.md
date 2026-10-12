@@ -58,7 +58,7 @@ Dashboard → service → Environment:
 - `SUPABASE_URL` = `https://jmayjkfhmjqcxzsjyzyw.supabase.co`
 - `SUPABASE_SERVICE_KEY` = service_role key (Supabase → Project Settings → API)
 - `PROJECT_KEY` = the 64-hex from step 2
-- `CHAINS` = `celo,xdc,fuse`, `GD_CLAIM_URL` = default, ... `CLAIM_TIMES_UTC` = `18:00,22:00` (twice daily, 4h apart; comma-separated UTC times)
+- `CHAINS` = `celo,xdc,fuse`, `GD_CLAIM_URL` = default, ... `CLAIM_TIMES_UTC` = `14:00,18:00,22:00` (3x daily, 4h apart; comma-separated UTC times)
 
 ### 5. Add wallets from the dashboard
 Open the dashboard → **Add wallet** card: enter a wallet name + private key, pick chains,

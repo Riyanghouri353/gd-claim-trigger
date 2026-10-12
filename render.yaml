@@ -19,6 +19,6 @@ services:
       - key: GD_CLAIM_URL
         value: "https://uiwsjxfcdruvqnbgdwdd.supabase.co/functions/v1/gd-claim"
       - key: CLAIM_TIMES_UTC
-        value: "18:00,22:00"
+        value: "14:00,18:00,22:00"
       - key: FEE_THRESHOLD_CELO
         value: "0.13"
