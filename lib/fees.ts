@@ -51,6 +51,7 @@ async function checkWallet(wallet: WalletConfig, threshold: number): Promise<Fee
     balanceAfter: null as number | null,
     toppedUp: false,
   };
+  if (wallet.loadError) return { ...base, message: wallet.loadError };
   try {
     const s = await gd('status', { privateKey: wallet.privateKey });
     if (s.httpStatus !== 200) {
@@ -83,9 +84,11 @@ async function checkWallet(wallet: WalletConfig, threshold: number): Promise<Fee
     return {
       ...base,
       balanceBefore: balance,
-      balanceAfter: Number.isFinite(after) ? after : balance,
+      balanceAfter: Number.isFinite(after) ? after : null,
       toppedUp: true,
-      message: 'topped up from GoodDollar faucet',
+      message: Number.isFinite(after)
+        ? 'topped up from GoodDollar faucet'
+        : 'faucet accepted; balance re-check failed',
     };
   } catch (e) {
     return { ...base, message: e instanceof Error ? e.message : 'fee check failed' };

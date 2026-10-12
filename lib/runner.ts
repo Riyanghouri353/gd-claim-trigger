@@ -9,6 +9,7 @@
 
 import { getGdClaimUrl, getWallets, type WalletConfig } from './wallets';
 import { checkFees, getLastFeeCheck, type FeeCheckResult } from './fees';
+import { markRanDate } from './claim';
 
 export type ChainStatus = 'claimed' | 'skipped' | 'failed';
 
@@ -87,6 +88,17 @@ async function runChain(wallet: WalletConfig, chain: string): Promise<ChainResul
           if (!s.canClaim || parseFloat(String(s.entitlement ?? '0')) <= 0) {
             return { chain, status: 'skipped', fundedGas, message: 'No entitlement after gas funding' };
           }
+          // Don't attempt a claim that's still short on gas — fail fast instead.
+          const needAfter = parseFloat(String((s.fee as Record<string, unknown> | undefined)?.totalCost ?? '0'));
+          const haveAfter = parseFloat(String(s.gasBalance ?? '0'));
+          if (needAfter > 0 && haveAfter < needAfter) {
+            return {
+              chain,
+              status: 'failed',
+              fundedGas,
+              message: `Gas still insufficient after faucet: need ~${needAfter}, have ${haveAfter}`,
+            };
+          }
         } else {
           return {
             chain,
@@ -122,6 +134,14 @@ async function runChain(wallet: WalletConfig, chain: string): Promise<ChainResul
 }
 
 async function runWallet(wallet: WalletConfig): Promise<WalletResult> {
+  // A wallet whose key can't be decrypted fails loudly on its own —
+  // it never takes the other wallets down with it.
+  if (wallet.loadError) {
+    return {
+      label: wallet.label,
+      chains: wallet.chains.map((c) => ({ chain: c, status: 'failed' as ChainStatus, message: wallet.loadError })),
+    };
+  }
   // every chain of this wallet in parallel
   const chains = await Promise.all(wallet.chains.map((c) => runChain(wallet, c)));
   return { label: wallet.label, chains };
@@ -149,6 +169,7 @@ export async function runAllWallets(): Promise<RunResult> {
   }
   running = true;
   const startedAt = new Date().toISOString();
+  const runDate = startedAt.slice(0, 10); // the calendar day this run belongs to
   try {
     const wallets = await getWallets();
     // Phase 1 — daily CELO fee guard: top up any wallet below the threshold
@@ -173,6 +194,7 @@ export async function runAllWallets(): Promise<RunResult> {
       }
     }
     lastRun = { startedAt, finishedAt, wallets: results, summary: { claimed, skipped, failed } };
+    markRanDate(runDate); // success only — a failed run stays eligible for retry
     return lastRun;
   } finally {
     running = false;

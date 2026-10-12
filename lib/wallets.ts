@@ -8,6 +8,8 @@ export interface WalletConfig {
   label: string;
   privateKey: string;
   chains: string[];
+  /** Set when this row's key can't be decrypted — the wallet fails on its own, never blocking others. */
+  loadError?: string;
 }
 
 export interface WalletInfo {
@@ -63,22 +65,25 @@ function toChains(raw: string, fallback: string[]): string[] {
   return list.length > 0 ? list : fallback;
 }
 
-/** Full wallet configs with DECRYPTED keys — call only when actually running claims. */
+/** Full wallet configs with DECRYPTED keys — call only when actually running claims.
+ *  A row that fails to decrypt does NOT throw: it's returned with loadError so
+ *  one bad row can never take the whole run down. */
 export async function getWallets(): Promise<WalletConfig[]> {
   const rows = await fetchRows();
   const fallback = getChains();
   return rows.map((r, i) => {
-    let privateKey: string;
+    const label = r.label || `Wallet ${i + 1}`;
+    const chains = toChains(r.chains, fallback);
     try {
-      privateKey = decryptPrivateKey(r.encrypted_key).trim();
+      return { label, privateKey: decryptPrivateKey(r.encrypted_key).trim(), chains };
     } catch {
-      throw new Error(`cannot decrypt key for "${r.label || `wallet ${i + 1}`}": wrong PROJECT_KEY?`);
+      return {
+        label,
+        privateKey: '',
+        chains,
+        loadError: 'cannot decrypt: wrong PROJECT_KEY or corrupted key',
+      };
     }
-    return {
-      label: r.label || `Wallet ${i + 1}`,
-      privateKey,
-      chains: toChains(r.chains, fallback),
-    };
   });
 }
 
@@ -103,6 +108,17 @@ export async function addWallet(input: { label: string; privateKey: string; chai
   const chains = (input.chains || []).map((c) => c.trim().toLowerCase()).filter(Boolean);
   if (chains.length === 0) throw new Error('select at least one chain');
   const { url, key } = supaEnv();
+  // Reject duplicate names (case-insensitive) so the dashboard stays unambiguous.
+  const existing = await fetch(`${url}/rest/v1/claim_wallets?select=label`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` },
+    cache: 'no-store',
+  });
+  if (existing.ok) {
+    const rows = (await existing.json()) as { label: string }[];
+    if (rows.some((r) => r.label.toLowerCase() === label.toLowerCase())) {
+      throw new Error(`a wallet named "${label}" already exists`);
+    }
+  }
   const res = await fetch(`${url}/rest/v1/claim_wallets`, {
     method: 'POST',
     headers: {
