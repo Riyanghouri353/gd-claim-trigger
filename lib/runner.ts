@@ -153,7 +153,12 @@ export async function runAllWallets(): Promise<RunResult> {
     const wallets = await getWallets();
     // Phase 1 — daily CELO fee guard: top up any wallet below the threshold
     // via the GoodDollar faucet before claims are attempted.
-    await checkFees(wallets);
+    // Never fatal: a fee-guard failure must not block claims.
+    try {
+      await checkFees(wallets);
+    } catch (e) {
+      console.error('fee guard failed (claims continue):', e instanceof Error ? e.message : e);
+    }
     // Phase 2 — ALL wallets concurrently — no concurrency limit.
     const results = await Promise.all(wallets.map(runWallet));
     const finishedAt = new Date().toISOString();

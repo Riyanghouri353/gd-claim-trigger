@@ -36,6 +36,7 @@ async function gd(action: 'status' | 'fundGas', extra: Record<string, string>): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, chain: 'celo', ...extra }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(90_000),
   });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { httpStatus: res.status, ...data };

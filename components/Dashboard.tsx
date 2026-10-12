@@ -237,7 +237,11 @@ export default function Dashboard() {
     try {
       const res = await fetch('/api/fees', { method: 'POST' });
       const data = await res.json();
-      setFMsg(data.ok ? '✓ Fee check complete — see results below.' : `✗ ${data.error || 'failed'}`);
+      setFMsg(
+        data.ok
+          ? '⛽ Fee check started in the background — results appear below shortly.'
+          : `✗ ${data.error || 'failed'}`,
+      );
     } catch (e) {
       setFMsg(`✗ ${e instanceof Error ? e.message : 'request failed'}`);
     } finally {
