@@ -21,6 +21,20 @@ interface RunResult {
   summary: { claimed: number; skipped: number; failed: number };
 }
 
+interface FeeWallet {
+  label: string;
+  balanceBefore: number | null;
+  balanceAfter: number | null;
+  toppedUp: boolean;
+  message?: string;
+}
+
+interface FeeCheck {
+  checkedAt: string;
+  threshold: number;
+  wallets: FeeWallet[];
+}
+
 interface Status {
   ok: boolean;
   time: string;
@@ -34,6 +48,8 @@ interface Status {
   nextRunUtc: string;
   running: boolean;
   lastRun: RunResult | null;
+  feeThreshold: number;
+  feeCheck: FeeCheck | null;
 }
 
 /* ---------- helpers ---------- */
@@ -134,6 +150,8 @@ export default function Dashboard() {
   const [wChains, setWChains] = useState<string[]>(['celo', 'xdc', 'fuse']);
   const [wBusy, setWBusy] = useState(false);
   const [wMsg, setWMsg] = useState('');
+  const [fBusy, setFBusy] = useState(false);
+  const [fMsg, setFMsg] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -211,6 +229,28 @@ export default function Dashboard() {
 
   function toggleChain(c: string) {
     setWChains((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  }
+
+  async function checkFeesNow() {
+    setFMsg('');
+    setFBusy(true);
+    try {
+      const res = await fetch('/api/fees', { method: 'POST' });
+      const data = await res.json();
+      setFMsg(data.ok ? '✓ Fee check complete — see results below.' : `✗ ${data.error || 'failed'}`);
+    } catch (e) {
+      setFMsg(`✗ ${e instanceof Error ? e.message : 'request failed'}`);
+    } finally {
+      setFBusy(false);
+      load();
+    }
+  }
+
+  function feePill(w: FeeWallet, threshold: number): { text: string; cls: string } {
+    if (w.toppedUp) return { text: 'Topped up', cls: 'ok' };
+    if (w.balanceBefore == null) return { text: 'Check failed', cls: 'error' };
+    if (w.balanceBefore < threshold) return { text: 'Low — faucet failed', cls: 'error' };
+    return { text: 'OK', cls: 'ok' };
   }
 
   if (!s) {
@@ -372,6 +412,61 @@ export default function Dashboard() {
             {wBusy ? 'Storing…' : '+ Store encrypted'}
           </button>
           {wMsg && <span className="formmsg">{wMsg}</span>}
+        </div>
+      </section>
+
+      {/* fee guard */}
+      <section className="card">
+        <div className="card-title">Fee Guard — CELO gas</div>
+        <p className="muted small">
+          Daily check at the start of every run · tops up via the GoodDollar faucet when below{' '}
+          <b className="tabular">{s.feeThreshold} CELO</b>
+        </p>
+        {!s.feeCheck ? (
+          <p className="muted small">No fee check yet — runs automatically with the next scheduled or manual run.</p>
+        ) : (
+          <>
+            <p className="muted small">
+              Last check:{' '}
+              <span className="tabular">
+                {new Date(s.feeCheck.checkedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC
+              </span>
+            </p>
+            <div className="walletlist">
+              {s.feeCheck.wallets.map((w) => {
+                const pill = feePill(w, s.feeCheck!.threshold);
+                return (
+                  <div key={w.label} className="walletrow">
+                    <span className="wlabel">{w.label}</span>
+                    <span className="fbalance tabular">
+                      {w.balanceBefore == null ? (
+                        <span className="muted">—</span>
+                      ) : w.toppedUp && w.balanceAfter != null ? (
+                        <>
+                          {w.balanceBefore.toFixed(4)} → <b>{w.balanceAfter.toFixed(4)}</b>
+                        </>
+                      ) : (
+                        <>{w.balanceBefore.toFixed(4)}</>
+                      )}{' '}
+                      <span className="muted small">CELO</span>
+                    </span>
+                    <span className={`${pill.cls} small pill`}>{pill.text}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {s.feeCheck.wallets.some((w) => w.message && !w.toppedUp && w.balanceBefore != null) && (
+              <p className="muted small">
+                {s.feeCheck.wallets.find((w) => w.message && !w.toppedUp)?.message}
+              </p>
+            )}
+          </>
+        )}
+        <div className="formrow">
+          <button className="btn" onClick={checkFeesNow} disabled={fBusy || s.running}>
+            {fBusy ? 'Checking…' : '⛽ Check gas now'}
+          </button>
+          {fMsg && <span className="formmsg">{fMsg}</span>}
         </div>
       </section>
 

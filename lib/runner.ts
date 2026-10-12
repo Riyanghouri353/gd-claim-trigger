@@ -1,10 +1,14 @@
 // Parallel claim engine — talks to the gd-claim function DIRECTLY.
-// Flow per wallet × chain (per the gd-claim API contract):
-//   status → (gas short? fundGas [CELO only, address-only] → wait 30s → re-status) → claim
+// Two phases per run:
+//   1. Fee guard (lib/fees.ts): daily CELO balance check per wallet; below
+//      FEE_THRESHOLD_CELO (default 0.13) → fundGas via the GoodDollar faucet.
+//   2. Claims per wallet × chain (per the gd-claim API contract):
+//      status → (gas short? fundGas [CELO only, address-only] → wait 30s → re-status) → claim
 // Parallelism: ALL wallets and ALL chains run concurrently via Promise.all —
 // no concurrency limit, exactly as requested.
 
 import { getGdClaimUrl, getWallets, type WalletConfig } from './wallets';
+import { checkFees, getLastFeeCheck, type FeeCheckResult } from './fees';
 
 export type ChainStatus = 'claimed' | 'skipped' | 'failed';
 
@@ -130,6 +134,10 @@ export function getLastRun(): RunResult | null {
   return lastRun;
 }
 
+export function getLastFeeCheckResult(): FeeCheckResult | null {
+  return getLastFeeCheck();
+}
+
 export function isRunning(): boolean {
   return running;
 }
@@ -143,7 +151,10 @@ export async function runAllWallets(): Promise<RunResult> {
   const startedAt = new Date().toISOString();
   try {
     const wallets = await getWallets();
-    // ALL wallets concurrently — no concurrency limit.
+    // Phase 1 — daily CELO fee guard: top up any wallet below the threshold
+    // via the GoodDollar faucet before claims are attempted.
+    await checkFees(wallets);
+    // Phase 2 — ALL wallets concurrently — no concurrency limit.
     const results = await Promise.all(wallets.map(runWallet));
     const finishedAt = new Date().toISOString();
     let claimed = 0;

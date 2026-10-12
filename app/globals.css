@@ -350,6 +350,22 @@ a:hover { text-decoration: underline; }
 
 .formmsg { font-size: 13px; color: var(--muted); }
 
+/* ---------- fee guard ---------- */
+
+.fbalance { flex: 1; font-size: 14px; }
+
+.pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pill.ok { color: #34d399; border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.08); }
+
+.pill.error { color: #ff7b7b; border-color: rgba(255, 123, 123, 0.35); background: rgba(255, 123, 123, 0.08); }
+
 .txlink { font-family: ui-monospace, monospace; font-size: 12.5px; }
 
 .fadein { animation: fadein 0.4s ease both; }

@@ -6,10 +6,14 @@ once (`Promise.all` all the way down).
 
 ## Claim flow per wallet × chain (per the gd-claim API contract)
 
-1. `status` with the private key → whitelist, entitlement, gas balance, fee estimate
-2. Not whitelisted / no entitlement → recorded as **skipped**, no transaction attempted
-3. Gas short? → `fundGas` with the address only (CELO faucet), wait 30s, re-check `status`
-4. `claim` with the private key → tx hash + explorer link, or a human-readable error
+Two phases per run:
+
+1. **Fee guard** (daily): each wallet's CELO balance is checked via `status`; if below
+   `FEE_THRESHOLD_CELO` (default `0.13`), a free top-up is requested from the GoodDollar
+   faucet relay (`fundGas`, address-only — no private key sent), then the balance is
+   re-checked. Results show on the dashboard per wallet (OK / Topped up / failed).
+2. **Claims**: `status` → whitelist/entitlement check → gas short? `fundGas` (CELO faucet),
+   wait 30s, re-check → `claim`. Skipped/failed chains are recorded with reasons.
 
 Results are shown live on the dashboard (`/`): per-wallet table with claimed / skipped /
 failed pills, amounts, and explorer links.

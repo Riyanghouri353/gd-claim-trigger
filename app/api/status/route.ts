@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getClaimTime, nextRunUtc } from '@/lib/claim';
-import { getLastRun, isRunning } from '@/lib/runner';
+import { getLastFeeCheckResult, getLastRun, isRunning } from '@/lib/runner';
+import { getFeeThreshold } from '@/lib/fees';
 import { getChains, getGdClaimUrl, isDbConfigured, listWallets } from '@/lib/wallets';
 
 export const dynamic = 'force-dynamic';
@@ -31,5 +32,7 @@ export async function GET() {
     nextRunUtc: nextRunUtc(now).toISOString(),
     running: isRunning(),
     lastRun: getLastRun(),
+    feeThreshold: getFeeThreshold(),
+    feeCheck: getLastFeeCheckResult(),
   });
 }
