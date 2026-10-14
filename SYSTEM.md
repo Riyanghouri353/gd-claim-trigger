@@ -19,7 +19,7 @@ running fully parallel with no concurrency limit.
 1. cron-job.org hits `/api/wake` every 10 min.
 2. The first tick at/after each time in `CLAIM_TIMES_UTC` (e.g. `14:00,18:00,22:00`) with that
    slot not yet completed starts `runAllWallets()` **in the background**; the tick responds immediately.
-3. **Phase 1 — fee guard:** each wallet's CELO balance is checked; below `0.13` CELO →
+3. **Phase 1 — fee guard:** each wallet's CELO balance is checked; below `0.14` CELO →
    `fundGas` via the GoodDollar faucet (address-only), wait 30s, re-check. Never fatal to claims.
 4. **Phase 2 — claims:** per wallet × chain: `status` → skip if not whitelisted or no
    entitlement → fund gas if short (CELO faucet) → `claim`. All concurrent. The
@@ -56,4 +56,4 @@ running fully parallel with no concurrency limit.
 | `GD_CLAIM_URL` | no | gd-claim function endpoint |
 | `CLAIM_TIME_UTC` | no | Legacy single run time (`18:00`) — used only if `CLAIM_TIMES_UTC` is unset |
 | `CLAIM_TIMES_UTC` | no | Comma-separated daily run times, UTC (`14:00,18:00,22:00` = 3x a day, 4h apart) |
-| `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.13`) |
+| `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.14`) |

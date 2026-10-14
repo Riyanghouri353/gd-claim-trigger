@@ -1,6 +1,6 @@
 // Daily CELO fee guard — proactive gas top-ups.
 // At the start of every run, each wallet's CELO balance is checked via the
-// gd-claim `status` action. If it's below FEE_THRESHOLD_CELO (default 0.13),
+// gd-claim `status` action. If it's below FEE_THRESHOLD_CELO (default 0.14),
 // a free top-up is requested from the GoodDollar faucet relay via `fundGas`
 // (address-only — no private key sent). All wallets are checked concurrently.
 
@@ -21,8 +21,8 @@ export interface FeeCheckResult {
 }
 
 export function getFeeThreshold(): number {
-  const v = parseFloat(process.env.FEE_THRESHOLD_CELO || '0.13');
-  return Number.isFinite(v) && v > 0 ? v : 0.13;
+  const v = parseFloat(process.env.FEE_THRESHOLD_CELO || '0.14');
+  return Number.isFinite(v) && v > 0 ? v : 0.14;
 }
 
 interface GdResponse {

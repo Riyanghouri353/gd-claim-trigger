@@ -9,7 +9,7 @@ once (`Promise.all` all the way down).
 Two phases per run:
 
 1. **Fee guard** (daily): each wallet's CELO balance is checked via `status`; if below
-   `FEE_THRESHOLD_CELO` (default `0.13`), a free top-up is requested from the GoodDollar
+   `FEE_THRESHOLD_CELO` (default `0.14`), a free top-up is requested from the GoodDollar
    faucet relay (`fundGas`, address-only — no private key sent), then the balance is
    re-checked. Results show on the dashboard per wallet (OK / Topped up / failed).
 2. **Claims**: `status` → whitelist/entitlement check → gas short? `fundGas` (CELO faucet),
