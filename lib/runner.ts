@@ -10,6 +10,7 @@
 import { getGdClaimUrl, getWallets, type WalletConfig } from './wallets';
 import { checkFees, getLastFeeCheck, type FeeCheckResult } from './fees';
 import { markSlotsComplete } from './claim';
+import { alertRunCrashed, maybeAlertRunFailures } from './alerts';
 
 export type ChainStatus = 'claimed' | 'skipped' | 'failed';
 
@@ -172,13 +173,15 @@ export async function runAllWallets(dueSlotKeys: string[] = []): Promise<RunResu
   }
   running = true;
   const startedAt = new Date().toISOString();
+  const slotLabel = dueSlotKeys.length > 0 ? dueSlotKeys.join(', ') : 'manual run';
   try {
     const wallets = await getWallets();
     // Phase 1 — daily CELO fee guard: top up any wallet below the threshold
     // via the GoodDollar faucet before claims are attempted.
     // Never fatal: a fee-guard failure must not block claims.
+    let feeResult: FeeCheckResult | null = null;
     try {
-      await checkFees(wallets);
+      feeResult = await checkFees(wallets);
     } catch (e) {
       console.error('fee guard failed (claims continue):', e instanceof Error ? e.message : e);
     }
@@ -197,7 +200,28 @@ export async function runAllWallets(dueSlotKeys: string[] = []): Promise<RunResu
     }
     lastRun = { startedAt, finishedAt, wallets: results, summary: { claimed, skipped, failed } };
     markSlotsComplete(dueSlotKeys); // success only — a failed run stays eligible for retry
+    // Email alert on failures (never breaks the run; dupes throttled to 12h).
+    try {
+      await maybeAlertRunFailures({
+        slotLabel,
+        startedAt,
+        finishedAt,
+        results,
+        summary: { claimed, skipped, failed },
+        fee: feeResult,
+      });
+    } catch (e) {
+      console.error('failure alert failed:', e instanceof Error ? e.message : e);
+    }
     return lastRun;
+  } catch (e) {
+    // The whole run crashed — alert immediately (slot stays eligible for retry).
+    try {
+      await alertRunCrashed(slotLabel, startedAt, e instanceof Error ? e.message : String(e));
+    } catch (ae) {
+      console.error('crash alert failed:', ae instanceof Error ? ae.message : ae);
+    }
+    throw e;
   } finally {
     running = false;
   }

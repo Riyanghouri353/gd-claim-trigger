@@ -37,6 +37,20 @@ running fully parallel with no concurrency limit.
 - **Fresh reads:** all Supabase fetches use `cache: 'no-store'` (a stale-cache bug was found and fixed in testing).
 - **Restart-safe:** in-memory state (last run, dedup date) resets on restart; the next tick simply runs if due. Claims are idempotent — already-claimed wallets report "no entitlement" and skip.
 
+## Alerts
+
+Email alerts via Resend, from `riyan@ghouri.site` to `riyanghouri7@gmail.com`
+(overridable via `ALERT_FROM` / `ALERT_EMAIL`):
+- **Run crash** (Supabase down, decrypt blowup, unexpected error): alerts immediately,
+  every time. The slot is not marked complete, so the next tick retries.
+- **Run completed with claim failures**: alerts with per-wallet/per-chain details,
+  fee-guard status, and a dashboard link. Identical failure sets re-alert at most
+  every 12h so a recurring issue (e.g. low gas) doesn't email 3x a day.
+- Skipped claims (no entitlement) never alert — that's normal.
+- Alert sending never breaks a run: every send is wrapped in try/catch.
+- Requires `RESEND_API_KEY` in env (sending-only key); without it, alerts are
+  skipped with a console warning.
+
 ## Security model
 
 - Keys are AES-256-GCM ciphertext in Supabase; decryption needs `PROJECT_KEY` (Render env only) and happens in server memory at run time.
@@ -57,3 +71,4 @@ running fully parallel with no concurrency limit.
 | `CLAIM_TIME_UTC` | no | Legacy single run time (`18:00`) — used only if `CLAIM_TIMES_UTC` is unset |
 | `CLAIM_TIMES_UTC` | no | Comma-separated daily run times, UTC (`14:00,18:00,22:00` = 3x a day, 4h apart) |
 | `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.14`) |
+| `RESEND_API_KEY` | yes | Sending-only Resend key for email alerts |
