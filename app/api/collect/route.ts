@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLastCollection, isCollecting, runCollection } from '@/lib/collect';
+import { getLastCollection, isCollecting, resumeCollection, runCollection } from '@/lib/collect';
 import { getCollectionSettings, setSetting } from '@/lib/settings';
 import { isDbConfigured, listWallets, supaEnv } from '@/lib/wallets';
 
@@ -52,11 +52,20 @@ export async function POST(req: Request) {
   if (!isDbConfigured()) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 400 });
   if (isCollecting()) return NextResponse.json({ ok: false, error: 'a collection is already in progress' }, { status: 409 });
   let dryRun = false;
+  let resumeId: string | null = null;
   try {
-    const body = (await req.json().catch(() => ({}))) as { dryRun?: boolean };
+    const body = (await req.json().catch(() => ({}))) as { dryRun?: boolean; resumeId?: string };
     dryRun = body.dryRun === true;
+    if (typeof body.resumeId === 'string' && body.resumeId) resumeId = body.resumeId;
   } catch {
     /* no body */
+  }
+  if (resumeId) {
+    // resume a failed collection: re-runs fund → forward → leftover for legs holding G$
+    resumeCollection(resumeId).catch((e) =>
+      console.error('collect: background resume failed:', e instanceof Error ? e.message : e),
+    );
+    return NextResponse.json({ ok: true, started: true, resume: true });
   }
   // run in background — collection takes minutes across chains
   runCollection({ dryRun }).catch((e) =>

@@ -77,6 +77,16 @@ async function getProvider(chain: string): Promise<JsonRpcProvider> {
   throw new Error(`all RPCs failed for ${chain}: ${lastErr}`);
 }
 
+/** Fee caps for transactions we send. EIP-1559 chains price via maxFeePerGas —
+ *  the legacy gasPrice field can be far lower (or null), so funding math must
+ *  use maxFeePerGas or the wallet ends up underfunded. */
+async function getFeeCaps(provider: JsonRpcProvider): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+  const fee = await provider.getFeeData();
+  return {
+    maxFeePerGas: fee.maxFeePerGas ?? fee.gasPrice ?? parseUnits('1', 'gwei'),
+    maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? BigInt(0),
+  };
+}
 /** Transport-level RPC failures worth retrying on the next fallback RPC. */
 function isRetryableRpcError(e: unknown): boolean {
   const m = e instanceof Error ? e.message : String(e);
@@ -119,7 +129,7 @@ async function estimateTransferCost(
     data: transferData(to, amountWei),
   });
   const fee = await provider.getFeeData();
-  const gasPrice = fee.gasPrice ?? parseUnits('1', 'gwei');
+  const gasPrice = fee.maxFeePerGas ?? fee.gasPrice ?? parseUnits('1', 'gwei');
   return { gas, gasPrice, costWei: gas * gasPrice };
 }
 
@@ -276,7 +286,221 @@ async function sweepOneWallet(
   }
 }
 
-/* ---------------- one chain leg ---------------- */
+/* ---------------- finish a leg: fund → forward G$ → sweep leftover ----------------
+ * Shared by fresh runs and resume. Tops up (never assumes the earlier funding
+ * was enough), sends with explicit fee caps so the tx can't outspend the wallet. */
+async function finishLeg(opts: {
+  provider: JsonRpcProvider;
+  chain: string;
+  collectionAddress: string;
+  collectionKey: string;
+  destination: string;
+  mainSigner: Wallet;
+  collected: bigint;
+  leg: CollectLeg;
+  save: () => Promise<void>;
+}): Promise<void> {
+  const { provider, chain, collectionAddress, collectionKey, destination, mainSigner, collected, leg, save } = opts;
+  const cfg = BALANCE_CHAINS[chain];
+  if (collected === BigInt(0)) {
+    leg.status = 'completed';
+    await save();
+    return;
+  }
+
+  // fund / top-up the collection wallet: (G$ forward + native sweep) × 1.5 at maxFeePerGas
+  leg.status = 'funding';
+  await save();
+  const { maxFeePerGas, maxPriorityFeePerGas } = await getFeeCaps(provider);
+  const estTransfer = await provider.estimateGas({
+    from: collectionAddress,
+    to: cfg.gdAddress,
+    data: transferData(destination, collected),
+  });
+  const estNativeSweep = BigInt(21000);
+  const needTotal =
+    ((estTransfer + estNativeSweep) * maxFeePerGas * BigInt(FUNDING_BUFFER_NUM)) / BigInt(FUNDING_BUFFER_DEN);
+  const haveNative = await provider.getBalance(collectionAddress);
+  if (haveNative < needTotal) {
+    const topUp = needTotal - haveNative;
+    const fundTx = await mainSigner.sendTransaction({
+      to: collectionAddress,
+      value: topUp,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    });
+    await waitReceipt(fundTx);
+    leg.fundingTx = fundTx.hash;
+    await save();
+  }
+
+  // forward all G$ → destination (explicit fees: cost is deterministic)
+  leg.status = 'forwarding';
+  await save();
+  const collectionSigner = new Wallet(collectionKey, provider);
+  const gdContract = new Contract(
+    cfg.gdAddress,
+    ['function transfer(address to, uint256 amount) returns (bool)'],
+    collectionSigner,
+  );
+  const { gdWei } = await getRawBalances(provider, chain, collectionAddress);
+  if (gdWei > BigInt(0)) {
+    const fwdTx = await gdContract.transfer(destination, gdWei, { maxFeePerGas, maxPriorityFeePerGas });
+    await waitReceipt(fwdTx);
+    leg.forwardTx = fwdTx.hash;
+    leg.forwardedG = gdWei.toString();
+  }
+  await save();
+
+  // sweep leftover native → destination (keep a buffer for this tx's own gas)
+  const { nativeWei } = await getRawBalances(provider, chain, collectionAddress);
+  const keepBuffer = (estNativeSweep * maxFeePerGas * BigInt(12)) / BigInt(10);
+  if (nativeWei > keepBuffer * BigInt(2)) {
+    const sendAmount = nativeWei - keepBuffer;
+    const lvTx = await collectionSigner.sendTransaction({
+      to: destination,
+      value: sendAmount,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    });
+    await waitReceipt(lvTx);
+    leg.leftoverTx = lvTx.hash;
+    leg.leftoverNative = sendAmount.toString();
+  } else {
+    leg.leftoverNative = '0';
+  }
+
+  leg.status = 'completed';
+  leg.error = null;
+  await save();
+}
+
+/* ---------------- resume a failed collection ---------------- */
+
+/** Resume a failed (non-dry-run) collection: re-runs fund → forward → leftover
+ *  for legs that collected G$ but never forwarded it. Sweeps are NOT repeated. */
+export async function resumeCollection(collectionId: string): Promise<CollectResult> {
+  if (collecting) throw new Error('a collection is already running');
+  collecting = true;
+  const startedAt = new Date().toISOString();
+  try {
+    const { url, key } = supaEnv();
+    // load the collection row
+    const colRes = await fetch(
+      `${url}/rest/v1/collection_wallets?id=eq.${encodeURIComponent(collectionId)}&select=*`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` }, cache: 'no-store' },
+    );
+    if (!colRes.ok) throw new Error(`collection lookup failed: HTTP ${colRes.status}`);
+    const colRows = (await colRes.json()) as Record<string, unknown>[];
+    const col = colRows[0];
+    if (!col) throw new Error('collection not found');
+    if (String(col['status']) === 'collecting') throw new Error('collection is still running');
+    if (String(col['label']).includes('dry-run')) throw new Error('cannot resume a dry-run');
+    const collectionKey = decryptPrivateKey(String(col['encrypted_key']));
+    const collectionAddress = String(col['address']);
+    const label = String(col['label']);
+
+    const settings = await getCollectionSettings();
+    const all = await getWallets();
+    const mainRow = all.find((w) => w.id === settings.mainWalletId);
+    if (!mainRow || mainRow.loadError || !mainRow.privateKey)
+      throw new Error('main wallet not found or cannot be decrypted');
+    const mainAddress = addressFromPrivateKey(mainRow.privateKey);
+    const destination =
+      settings.destination && /^0x[0-9a-fA-F]{40}$/.test(settings.destination.trim())
+        ? settings.destination.trim()
+        : mainAddress;
+
+    // load failed legs that still hold G$
+    const legRes = await fetch(
+      `${url}/rest/v1/collection_legs?collection_id=eq.${encodeURIComponent(collectionId)}&select=*`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` }, cache: 'no-store' },
+    );
+    if (!legRes.ok) throw new Error(`legs lookup failed: HTTP ${legRes.status}`);
+    const legRows = (await legRes.json()) as Record<string, unknown>[];
+    const legs: CollectLeg[] = [];
+    for (const r of legRows) {
+      if (String(r['status']) !== 'failed') continue;
+      if (r['forward_tx']) continue; // already forwarded
+      const collected = BigInt(String(r['collected_g'] ?? '0'));
+      if (collected === BigInt(0)) continue;
+      const chain = String(r['chain']);
+      const legId = String(r['id']);
+      const provider = await getProvider(chain);
+      const mainSigner = new Wallet(mainRow.privateKey, provider);
+      const leg: CollectLeg = {
+        chain,
+        status: 'resuming',
+        walletsSwept: Number(r['wallets_swept'] ?? 0),
+        walletsSkipped: Number(r['wallets_skipped'] ?? 0),
+        collectedG: String(r['collected_g'] ?? '0'),
+        forwardedG: String(r['forwarded_g'] ?? '0'),
+        leftoverNative: String(r['leftover_native'] ?? '0'),
+        fundingTx: (r['funding_tx'] as string) ?? null,
+        forwardTx: null,
+        leftoverTx: null,
+        sweepTxs: [],
+        error: null,
+      };
+      const save = () =>
+        supaPatch('collection_legs', legId, {
+          status: leg.status,
+          forwarded_g: leg.forwardedG,
+          leftover_native: leg.leftoverNative,
+          funding_tx: leg.fundingTx,
+          forward_tx: leg.forwardTx,
+          leftover_tx: leg.leftoverTx,
+          error: leg.error,
+        });
+      try {
+        await finishLeg({
+          provider,
+          chain,
+          collectionAddress,
+          collectionKey,
+          destination,
+          mainSigner,
+          collected,
+          leg,
+          save,
+        });
+      } catch (e) {
+        leg.status = 'failed';
+        leg.error = e instanceof Error ? e.message.slice(0, 300) : 'resume failed';
+        await save();
+      }
+      legs.push(leg);
+    }
+    if (legs.length === 0) throw new Error('nothing to resume (no failed legs holding G$)');
+
+    // update the collection row if all legs now completed
+    const colLegRes = await fetch(
+      `${url}/rest/v1/collection_legs?collection_id=eq.${encodeURIComponent(collectionId)}&select=status`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` }, cache: 'no-store' },
+    );
+    const allLegs = (await colLegRes.json()) as { status: string }[];
+    const allOk = allLegs.every((l) => l.status === 'completed');
+    await supaPatch('collection_wallets', collectionId, {
+      status: allOk ? 'completed' : 'failed',
+      error: allOk ? null : 'some legs still need attention; see collection_legs',
+    });
+
+    const finishedAt = new Date().toISOString();
+    const result: CollectResult = {
+      startedAt,
+      finishedAt,
+      collectionId,
+      collectionAddress,
+      label: `${label} (resumed)`,
+      legs,
+      dryRun: false,
+    };
+    lastCollection = result;
+    return result;
+  } finally {
+    collecting = false;
+  }
+}
 
 async function runChainLeg(
   chain: string,
@@ -343,11 +567,6 @@ async function runChainLeg(
     leg.collectedG = collected.toString();
     await save();
 
-    if (collected === BigInt(0)) {
-      leg.status = 'completed';
-      await save();
-      return leg;
-    }
     if (dryRun) {
       leg.status = 'completed';
       leg.error = 'dry-run: no funding/forwarding broadcast';
@@ -355,57 +574,18 @@ async function runChainLeg(
       return leg;
     }
 
-    // fund the collection wallet: (G$ forward + native sweep) × 1.5
-    leg.status = 'funding';
-    await save();
-    const fee = await provider.getFeeData();
-    const gasPrice = fee.gasPrice ?? parseUnits('1', 'gwei');
-    const estTransfer = await provider.estimateGas({
-      from: collectionAddress,
-      to: cfg.gdAddress,
-      data: transferData(destination, collected),
+    const mainSignerForLeg = new Wallet(main.privateKey, provider);
+    await finishLeg({
+      provider,
+      chain,
+      collectionAddress,
+      collectionKey,
+      destination,
+      mainSigner: mainSignerForLeg,
+      collected,
+      leg,
+      save,
     });
-    const estNativeSweep = BigInt(21000);
-    const fundAmount =
-      ((estTransfer + estNativeSweep) * gasPrice * BigInt(FUNDING_BUFFER_NUM)) / BigInt(FUNDING_BUFFER_DEN);
-    const fundTx = await main.signer.sendTransaction({ to: collectionAddress, value: fundAmount });
-    await waitReceipt(fundTx);
-    leg.fundingTx = fundTx.hash;
-    await save();
-
-    // forward all G$ → destination
-    leg.status = 'forwarding';
-    await save();
-    const collectionSigner = new Wallet(collectionKey, provider);
-    const gdContract = new Contract(
-      cfg.gdAddress,
-      ['function transfer(address to, uint256 amount) returns (bool)'],
-      collectionSigner,
-    );
-    const { gdWei } = await getRawBalances(provider, chain, collectionAddress);
-    if (gdWei > BigInt(0)) {
-      const fwdTx = await gdContract.transfer(destination, gdWei);
-      await waitReceipt(fwdTx);
-      leg.forwardTx = fwdTx.hash;
-      leg.forwardedG = gdWei.toString();
-    }
-    await save();
-
-    // sweep leftover native → destination (keep a small buffer for this tx's own gas)
-    const { nativeWei } = await getRawBalances(provider, chain, collectionAddress);
-    const keepBuffer = estNativeSweep * gasPrice * BigInt(12) / BigInt(10);
-    if (nativeWei > keepBuffer * BigInt(2)) {
-      const sendAmount = nativeWei - keepBuffer;
-      const lvTx = await collectionSigner.sendTransaction({ to: destination, value: sendAmount });
-      await waitReceipt(lvTx);
-      leg.leftoverTx = lvTx.hash;
-      leg.leftoverNative = sendAmount.toString();
-    } else {
-      leg.leftoverNative = '0';
-    }
-
-    leg.status = 'completed';
-    await save();
     return leg;
   } catch (e) {
     leg.status = 'failed';
