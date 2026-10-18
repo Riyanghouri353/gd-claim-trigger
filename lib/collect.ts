@@ -26,7 +26,7 @@ export interface CollectLeg {
   fundingTx: string | null;
   forwardTx: string | null;
   leftoverTx: string | null;
-  sweepTxs: { wallet: string; tx: string; amountG: string }[];
+  sweepTxs: { wallet: string; tx?: string; amountG?: string; status?: string; reason?: string }[];
   error: string | null;
 }
 
@@ -302,6 +302,8 @@ async function runChainLeg(
         if (o.tx) leg.sweepTxs.push({ wallet: o.wallet, tx: o.tx, amountG: o.amountG ?? '0' });
       } else {
         leg.walletsSkipped++;
+        // In dry-run mode, keep the skip reason so we can diagnose (e.g. RPC failures)
+        if (dryRun) leg.sweepTxs.push({ wallet: o.wallet, status: o.status, reason: o.reason });
       }
     }
     leg.collectedG = collected.toString();
@@ -389,6 +391,7 @@ export async function runCollection(opts: { dryRun?: boolean } = {}): Promise<Co
   }
   collecting = true;
   const startedAt = new Date().toISOString();
+  let collectionId = '';
   try {
     const settings = await getCollectionSettings();
     if (!settings.mainWalletId) throw new Error('no main wallet configured (collection_settings.collection_main_wallet_id)');
@@ -421,8 +424,7 @@ export async function runCollection(opts: { dryRun?: boolean } = {}): Promise<Co
       address: collectionAddress,
       status: 'collecting',
     });
-    const collectionId = String(colRow.id);
-
+    collectionId = String(colRow.id);
     // 2. run each chain leg (parallel across chains — independent networks/nonces)
     const legs = await Promise.all(
       enabledChains.map(async (chain) => {
@@ -479,7 +481,14 @@ export async function runCollection(opts: { dryRun?: boolean } = {}): Promise<Co
     }
     return lastCollection;
   } catch (e) {
-    // whole collection crashed before completing — alert (keys already in DB)
+    // whole collection crashed before completing — mark the row failed (never leave it stuck
+    // in 'collecting') and alert (keys already in DB)
+    if (collectionId) {
+      await supaPatch('collection_wallets', collectionId, {
+        status: 'failed',
+        error: `collection crashed: ${e instanceof Error ? e.message.slice(0, 300) : 'unknown'}`,
+      }).catch(() => {});
+    }
     if (!dryRun) {
       try {
         await alertCollectionFinished({
