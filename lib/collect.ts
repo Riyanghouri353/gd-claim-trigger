@@ -63,6 +63,9 @@ async function getProvider(chain: string): Promise<JsonRpcProvider> {
       const t = setTimeout(() => ctrl.abort(), RPC_TIMEOUT_MS);
       try {
         await p.getBlockNumber();
+        // Representative check: our real workload is eth_call (balanceOf). A node that
+        // answers getBlockNumber but 413s eth_call (seen on XDC) must be skipped here.
+        await p.call({ to: cfg.gdAddress, data: BALANCE_OF_SELECTOR + pad32(cfg.gdAddress) });
       } finally {
         clearTimeout(t);
       }
@@ -72,6 +75,12 @@ async function getProvider(chain: string): Promise<JsonRpcProvider> {
     }
   }
   throw new Error(`all RPCs failed for ${chain}: ${lastErr}`);
+}
+
+/** Transport-level RPC failures worth retrying on the next fallback RPC. */
+function isRetryableRpcError(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /413|429|502|503|504|timeout|timed out|abort|network|ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|server response|bad gateway|service unavailable/i.test(m);
 }
 
 function pad32(hex: string): string {
@@ -183,21 +192,45 @@ interface SweepOutcome {
 
 async function sweepOneWallet(
   chain: string,
-  provider: JsonRpcProvider,
   w: WalletConfig & { address: string },
   collectionAddress: string,
   dustWei: bigint,
-  gdDecimals: number,
   main: { signer: Wallet; address: string },
   dryRun: boolean,
 ): Promise<SweepOutcome> {
   const cfg = BALANCE_CHAINS[chain];
+  // READ phase with per-RPC fallback (no side effects — safe to retry).
+  // A single sick RPC must not sink all wallets.
+  let provider: JsonRpcProvider | null = null;
+  let nativeWei = BigInt(0);
+  let gdWei = BigInt(0);
+  let costWei = BigInt(0);
+  let lastErr: unknown = null;
+  for (const url of cfg.rpcs) {
+    try {
+      const p = new JsonRpcProvider(url, undefined, { staticNetwork: true });
+      const bal = await getRawBalances(p, chain, w.address);
+      const est = await estimateTransferCost(p, chain, w.address, collectionAddress, bal.gdWei);
+      provider = p;
+      nativeWei = bal.nativeWei;
+      gdWei = bal.gdWei;
+      costWei = est.costWei;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (!isRetryableRpcError(e)) break;
+    }
+  }
+  if (!provider) {
+    return {
+      wallet: w.label,
+      status: 'skipped',
+      reason: lastErr instanceof Error ? lastErr.message.slice(0, 160) : 'sweep failed',
+    };
+  }
   try {
-    let { nativeWei, gdWei } = await getRawBalances(provider, chain, w.address);
     if (gdWei < dustWei) return { wallet: w.label, status: 'skipped', reason: 'dust' };
 
-    // ensure gas for the sweep tx
-    const { costWei } = await estimateTransferCost(provider, chain, w.address, collectionAddress, gdWei);
     if (dryRun) {
       // estimation only — no faucet, no funding, no broadcast
       const short = nativeWei < costWei;
@@ -208,6 +241,7 @@ async function sweepOneWallet(
         reason: `dry-run: sweep gas ~${costWei} wei, have ${nativeWei}${short ? ' — would need funding' : ''}`,
       };
     }
+    // ensure gas for the sweep tx
     if (nativeWei < costWei) {
       if (chain === 'celo') {
         const ok = await fundViaFaucet(chain, w.address);
@@ -292,7 +326,7 @@ async function runChainLeg(
     const provider = await getProvider(chain);
     // sweeps: parallel across wallets (different signers — no nonce clash)
     const outcomes = await Promise.all(
-      wallets.map((w) => sweepOneWallet(chain, provider, w, collectionAddress, dustWei, gdDecimals, main, dryRun)),
+      wallets.map((w) => sweepOneWallet(chain, w, collectionAddress, dustWei, main, dryRun)),
     );
     let collected = BigInt(0);
     for (const o of outcomes) {
