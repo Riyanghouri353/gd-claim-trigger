@@ -2,7 +2,14 @@
 // Only CIPHERTEXT ever leaves the database. Each key is decrypted in server
 // memory at claim time using PROJECT_KEY — never logged, never sent to clients.
 
+import { Wallet } from 'ethers';
 import { canDecrypt, decryptPrivateKey, encryptPrivateKey } from './crypto';
+
+/** Derive the 0x address from a private key (same address on Celo/XDC/Fuse). */
+export function addressFromPrivateKey(privateKey: string): string {
+  const pk = privateKey.trim().startsWith('0x') ? privateKey.trim() : `0x${privateKey.trim()}`;
+  return new Wallet(pk).address;
+}
 
 export interface WalletConfig {
   label: string;
@@ -17,6 +24,8 @@ export interface WalletInfo {
   label: string;
   chains: string[];
   keyOk: boolean; // decrypts to a key-shaped value (checked server-side, never exposed)
+  /** Derived from the key once at insert; null until backfilled for older rows. */
+  address: string | null;
 }
 
 export const DEFAULT_GD_CLAIM_URL =
@@ -46,11 +55,12 @@ interface SupaRow {
   label: string;
   encrypted_key: string;
   chains: string;
+  address: string | null;
 }
 
 async function fetchRows(): Promise<SupaRow[]> {
   const { url, key } = supaEnv();
-  const res = await fetch(`${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains&order=created_at`, {
+  const res = await fetch(`${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains,address&order=created_at`, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
     cache: 'no-store',
   });
@@ -87,7 +97,7 @@ export async function getWallets(): Promise<WalletConfig[]> {
   });
 }
 
-/** Safe metadata for the dashboard — ids/labels/chains only, plus a decrypt health check. */
+/** Safe metadata for the dashboard — ids/labels/chains/addresses only, plus a decrypt health check. */
 export async function listWallets(): Promise<WalletInfo[]> {
   const rows = await fetchRows();
   const fallback = getChains();
@@ -96,7 +106,37 @@ export async function listWallets(): Promise<WalletInfo[]> {
     label: r.label || `Wallet ${i + 1}`,
     chains: toChains(r.chains, fallback),
     keyOk: canDecrypt(r.encrypted_key),
+    address: r.address || null,
   }));
+}
+
+/** One-time backfill: derive and store the address for rows added before the
+ *  address column existed. Only UPDATEs the address column — keys are never
+ *  touched. Safe to call on every balance check; rows already filled are skipped. */
+export async function ensureAddresses(): Promise<number> {
+  const rows = await fetchRows();
+  const missing = rows.filter((r) => !r.address);
+  if (missing.length === 0) return 0;
+  const { url, key } = supaEnv();
+  let filled = 0;
+  await Promise.all(
+    missing.map(async (r) => {
+      try {
+        const address = addressFromPrivateKey(decryptPrivateKey(r.encrypted_key));
+        const res = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(r.id)}`, {
+          method: 'PATCH',
+          headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ address }),
+        });
+        if (res.ok) filled++;
+        else console.error(`ensureAddresses: failed for ${r.label}: HTTP ${res.status}`);
+      } catch (e) {
+        console.error(`ensureAddresses: cannot derive for ${r.label}:`, e instanceof Error ? e.message : e);
+      }
+    }),
+  );
+  return filled;
 }
 
 /** Encrypt + store a new wallet. Key format is validated; never stored raw. */
@@ -127,7 +167,12 @@ export async function addWallet(input: { label: string; privateKey: string; chai
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
-    body: JSON.stringify({ label, encrypted_key: encryptPrivateKey(pk), chains: chains.join(',') }),
+    body: JSON.stringify({
+      label,
+      encrypted_key: encryptPrivateKey(pk),
+      chains: chains.join(','),
+      address: addressFromPrivateKey(pk),
+    }),
   });
   if (res.status === 404)
     throw new Error('claim_wallets table not found — run supabase.sql in the Supabase SQL editor once');

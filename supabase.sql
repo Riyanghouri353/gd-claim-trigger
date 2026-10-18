@@ -11,6 +11,7 @@ create table if not exists claim_wallets (
   label text not null,
   encrypted_key text not null,
   chains text not null default 'celo,xdc,fuse',
+  address text, -- derived from the private key once at insert; used for balance lookups (no key needed)
   created_at timestamptz default now()
 );
 

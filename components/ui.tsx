@@ -42,6 +42,7 @@ export interface VaultWallet {
   label: string;
   chains: string[];
   keyOk: boolean;
+  address: string | null;
 }
 
 export interface Status {

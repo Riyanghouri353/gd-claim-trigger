@@ -51,6 +51,17 @@ Email alerts via Resend, from `riyan@ghouri.site` to `riyanghouri7@gmail.com`
 - Requires `RESEND_API_KEY` in env (sending-only key); without it, alerts are
   skipped with a console warning.
 
+## Vault balances
+
+The Vault screen shows each wallet's address (derived from its key once at
+insert, stored in the `address` column — backfilled automatically for older
+rows) and live native + G$ balances per chain via `GET /api/balances`.
+Balance lookups need no private keys: `lib/balances.ts` calls `eth_getBalance`
+and `eth_call(balanceOf)` against public RPCs with per-chain fallbacks
+(Celo: forno → ankr; Fuse: rpc.fuse.io → drpc; XDC: ankr → erpc → rpc.xdc.org).
+All wallets × chains are fetched in parallel; one slow RPC can't block the rest.
+A "Refresh balances" button re-fetches on demand.
+
 ## Security model
 
 - Keys are AES-256-GCM ciphertext in Supabase; decryption needs `PROJECT_KEY` (Render env only) and happens in server memory at run time.

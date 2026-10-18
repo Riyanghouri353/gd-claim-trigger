@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // Wallet keys are NEVER exposed here — only labels, chains, and a decrypt health flag.
 export async function GET() {
   const now = new Date();
-  let wallets: { label: string; chains: string[]; keyOk: boolean }[] = [];
+  let wallets: { id: string; label: string; chains: string[]; keyOk: boolean; address: string | null }[] = [];
   let dbError: string | null = null;
   if (isDbConfigured()) {
     try {
