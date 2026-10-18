@@ -12,6 +12,7 @@ export function addressFromPrivateKey(privateKey: string): string {
 }
 
 export interface WalletConfig {
+  id: string;
   label: string;
   privateKey: string;
   chains: string[];
@@ -42,7 +43,7 @@ export function getChains(): string[] {
     .filter(Boolean);
 }
 
-function supaEnv(): { url: string; key: string } {
+export function supaEnv(): { url: string; key: string } {
   const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const key = process.env.SUPABASE_SERVICE_KEY || '';
   if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_KEY are not set');
@@ -85,9 +86,10 @@ export async function getWallets(): Promise<WalletConfig[]> {
     const label = r.label || `Wallet ${i + 1}`;
     const chains = toChains(r.chains, fallback);
     try {
-      return { label, privateKey: decryptPrivateKey(r.encrypted_key).trim(), chains };
+      return { id: r.id, label, privateKey: decryptPrivateKey(r.encrypted_key).trim(), chains };
     } catch {
       return {
+        id: r.id,
         label,
         privateKey: '',
         chains,

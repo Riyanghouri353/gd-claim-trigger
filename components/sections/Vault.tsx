@@ -184,6 +184,37 @@ export default function Vault(props: {
 
   const balFor = (id: string): WalletBal | undefined => bals?.find((b) => b.id === id);
 
+  /* ---- main wallet marking (collection gas funder + default destination) ---- */
+  const [mainId, setMainId] = useState('');
+  useEffect(() => {
+    fetch('/api/collect', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setMainId(d.settings.mainWalletId);
+      })
+      .catch(() => {});
+  }, [s.walletsConfigured]);
+
+  const setAsMain = useCallback(
+    async (id: string, label: string) => {
+      if (!window.confirm(`Mark "${label}" as the main wallet for collection (funds gas, receives G$)?`)) return;
+      try {
+        const res = await fetch('/api/collect', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mainWalletId: id }),
+          cache: 'no-store',
+        });
+        const d = await res.json();
+        if (d.ok) setMainId(id);
+        else window.alert(d.error || 'Could not set main wallet.');
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'request failed');
+      }
+    },
+    [],
+  );
+
   return (
     <div className="section">
       <header className="pagehead">
@@ -293,6 +324,21 @@ export default function Vault(props: {
                     <Pill tone={w.keyOk ? 'ok' : 'error'} title={w.keyOk ? 'Decrypts with PROJECT_KEY' : 'Decryption failed'}>
                       {w.keyOk ? '🔒 secured' : '🔒 failed'}
                     </Pill>
+                    {mainId === w.id ? (
+                      <Pill tone="info" title="Main wallet: funds collection gas, receives collected G$">
+                        ★ main
+                      </Pill>
+                    ) : (
+                      <button
+                        type="button"
+                        className="iconbtn"
+                        title={`Mark ${w.label} as main wallet`}
+                        aria-label={`Mark ${w.label} as main wallet`}
+                        onClick={() => setAsMain(w.id, w.label)}
+                      >
+                        ☆
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="iconbtn"

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { dueSlots, getClaimTimes, getCompletedSlots, nextRunUtc } from '@/lib/claim';
+import { maybeAutoCollect } from '@/lib/collect';
 import { getLastRun, isRunning, runAllWallets } from '@/lib/runner';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,11 @@ export async function GET() {
 
   if (due.length > 0 && !isRunning()) {
     started = true;
-    runAllWallets(due).catch((err) => console.error('background claim run failed:', err));
+    // After the 22:00 run, maybeAutoCollect starts the 3-day collection in the
+    // background when due (never blocks or breaks the claim run).
+    runAllWallets(due)
+      .then(() => maybeAutoCollect(due))
+      .catch((err) => console.error('background claim run failed:', err));
   }
 
   const last = getLastRun();
