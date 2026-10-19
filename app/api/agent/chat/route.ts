@@ -11,6 +11,7 @@ import {
   disableKey,
   getSetting,
 } from "@/lib/agent/keys";
+import { listConnectors, callConnector } from "@/lib/agent/connectors";
 
 export const maxDuration = 60;
 
@@ -78,12 +79,25 @@ export async function POST(req: Request) {
 
   const modelMessages = await convertToModelMessages(messages);
   const modelId = (await getSetting("chat_model")) || "openai/gpt-oss-120b";
-  const systemPrompt =
+  let systemPrompt =
     (await getSetting("system_prompt")) ||
     "You are Riyan's personal AI assistant. Be warm, direct, technically sharp. " +
       "Never open with a canned greeting (no 'Hey there! How can I help you today?') and never list your capabilities unless the user explicitly asks what you can do. " +
       "Just answer the message naturally and briefly, like texting a smart friend — a greeting like 'hy' gets a short friendly reply, not a brochure. " +
       "Match the user's language. Use code blocks for code, and use your tools when they help.";
+
+  // Tell the model which API connectors exist so it can call them.
+  try {
+    const conns = (await listConnectors()).filter((c) => c.enabled);
+    if (conns.length > 0) {
+      systemPrompt +=
+        "\n\nSaved API connectors you can call with the call_connector tool: " +
+        conns.map((c) => `"${c.name}" (${c.baseUrl})`).join(", ") +
+        ". Use them whenever the user asks about a connected service. Never reveal keys — they stay server-side.";
+    }
+  } catch {
+    /* connectors unavailable — chat still works */
+  }
 
   const candidates = await listCandidateKeys();
   if (candidates.length === 0) {
@@ -101,6 +115,25 @@ export async function POST(req: Request) {
         description: "Get the current date and time",
         inputSchema: z.object({}),
         execute: async () => new Date().toString(),
+      }),
+      call_connector: tool({
+        description:
+          "Call a saved API connector (configured in Settings & keys). The API key is injected server-side — never ask the user for it. Returns { ok, status, body }.",
+        inputSchema: z.object({
+          connector: z.string().describe("Connector name exactly as shown in Settings"),
+          method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+          path: z.string().describe("API path starting with /, appended to the connector base URL"),
+          query: z.record(z.string(), z.string()).optional().describe("Query parameters"),
+          body: z.any().optional().describe("JSON body for POST/PUT/PATCH"),
+        }),
+        execute: async ({ connector, method, path, query, body }) => {
+          try {
+            const r = await callConnector(connector, method, path, query, body);
+            return { ok: r.ok, status: r.status, body: r.body };
+          } catch (e: any) {
+            return { ok: false, status: 0, body: `Connector error: ${e?.message || e}` };
+          }
+        },
       }),
     };
     // Groq's free browser-search tool (gpt-oss models). Guarded: if the

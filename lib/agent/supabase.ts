@@ -33,6 +33,26 @@ export type Database = {
         };
         Relationships: [];
       };
+      connectors: {
+        Row: {
+          id: string;
+          name: string;
+          enc_config: string;
+          iv: string;
+          tag: string;
+          enabled: boolean;
+          created_at: string;
+        };
+        Insert: {
+          name: string;
+          enc_config: string;
+          iv: string;
+          tag: string;
+          enabled?: boolean;
+        };
+        Update: { name?: string; enc_config?: string; iv?: string; tag?: string; enabled?: boolean };
+        Relationships: [];
+      };
       conversations: {
         Row: { id: string; title: string | null; created_at: string };
         Insert: { title?: string | null };

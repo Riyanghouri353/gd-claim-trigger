@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import styles from "../agent-theme.module.css";
 
 interface KeyRow {
   id: string;
@@ -11,6 +12,23 @@ interface KeyRow {
   last_used_at: string | null;
   created_at: string;
 }
+
+interface ConnectorRow {
+  id: string;
+  name: string;
+  baseUrl: string;
+  authType: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+const AUTH_TYPES = [
+  { value: "bearer", label: "Bearer token (Authorization header)" },
+  { value: "header", label: "Custom header" },
+  { value: "query", label: "Query parameter" },
+  { value: "basic", label: "Basic auth (username + key)" },
+  { value: "none", label: "No auth" },
+];
 
 const MODELS = [
   "openai/gpt-oss-120b",
@@ -29,10 +47,24 @@ export default function SettingsClient() {
   const [model, setModel] = useState(MODELS[0]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [saved, setSaved] = useState(false);
+  const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
+  const [cName, setCName] = useState("");
+  const [cBaseUrl, setCBaseUrl] = useState("");
+  const [cAuthType, setCAuthType] = useState("bearer");
+  const [cAuthField, setCAuthField] = useState("");
+  const [cKey, setCKey] = useState("");
+  const [cTestPath, setCTestPath] = useState("");
+  const [cBusy, setCBusy] = useState(false);
+  const [cMsg, setCMsg] = useState("");
 
   async function load() {
-    const [kr, sr] = await Promise.all([fetch("/api/agent/keys"), fetch("/api/agent/settings")]);
+    const [kr, sr, cr] = await Promise.all([
+      fetch("/api/agent/keys"),
+      fetch("/api/agent/settings"),
+      fetch("/api/agent/connectors"),
+    ]);
     if (kr.ok) setKeys((await kr.json()).keys ?? []);
+    if (cr.ok) setConnectors((await cr.json()).connectors ?? []);
     if (sr.ok) {
       const j = await sr.json();
       setModel(j.chat_model || MODELS[0]);
@@ -92,7 +124,59 @@ export default function SettingsClient() {
     }
   }
 
+  async function addConnector(e: React.FormEvent) {
+    e.preventDefault();
+    setCBusy(true);
+    setCMsg("");
+    const res = await fetch("/api/agent/connectors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: cName,
+        baseUrl: cBaseUrl,
+        authType: cAuthType,
+        authField: cAuthField,
+        key: cKey,
+        testPath: cTestPath,
+      }),
+    });
+    const j = await res.json();
+    setCBusy(false);
+    if (!res.ok) {
+      setCMsg("❌ " + (j.error || "Failed"));
+      return;
+    }
+    setCName("");
+    setCBaseUrl("");
+    setCAuthField("");
+    setCKey("");
+    setCTestPath("");
+    setCMsg("✅ Connector saved and verified (" + (j.detail || "ok") + ")");
+    load();
+  }
+
+  async function deleteConnector(id: string) {
+    if (!confirm("Delete this connector?")) return;
+    await fetch(`/api/agent/connectors/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function toggleConnector(id: string, enabled: boolean) {
+    await fetch(`/api/agent/connectors/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    load();
+  }
+
+  const authFieldLabel =
+    cAuthType === "header" ? "Header name (e.g. X-API-Key)" :
+    cAuthType === "query" ? "Query param name (e.g. api_key)" :
+    cAuthType === "basic" ? "Username" : "";
+
   return (
+    <div className={`${styles.theme} min-h-screen bg-[var(--ag-bg)]`}>
     <main className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -155,6 +239,111 @@ export default function SettingsClient() {
         </form>
       </section>
 
+      <section className="mb-8 rounded-2xl border border-[var(--ag-border)] bg-[var(--ag-sidebar)] p-5">
+        <h2 className="mb-3 text-lg font-semibold text-[var(--ag-text)]">API connectors</h2>
+        <p className="mb-4 text-sm text-[var(--ag-muted)]">
+          Save API keys for services your agent can call from chat (email, domains,
+          anything with an HTTP API). Keys are AES-256 encrypted in Supabase, tested
+          before saving, and never sent to your browser. Add them here — not in chat,
+          so they never land in chat history.
+        </p>
+        {cMsg && <p className="mb-4 text-sm text-[var(--ag-text)]">{cMsg}</p>}
+        <div className="mb-4 space-y-2">
+          {connectors.length === 0 && (
+            <p className="text-sm text-[var(--ag-faint)]">No connectors yet — add your first below.</p>
+          )}
+          {connectors.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between rounded-xl bg-[var(--ag-surface)] px-4 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[var(--ag-text)]">{c.name}</p>
+                <p className="truncate text-xs text-[var(--ag-faint)]">
+                  {c.enabled ? "✅ enabled" : "⏸ disabled"} · {c.authType} · {c.baseUrl}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => toggleConnector(c.id, !c.enabled)}
+                  className="rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-xs text-[var(--ag-text)] hover:bg-[var(--ag-active)]"
+                >
+                  {c.enabled ? "Disable" : "Enable"}
+                </button>
+                <button
+                  onClick={() => deleteConnector(c.id)}
+                  className="rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-xs text-[var(--ag-danger)] hover:bg-[var(--ag-active)]"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={addConnector} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <input
+            value={cName}
+            onChange={(e) => setCName(e.target.value)}
+            placeholder="Name (e.g. resend)"
+            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+          />
+          <input
+            value={cBaseUrl}
+            onChange={(e) => setCBaseUrl(e.target.value)}
+            placeholder="Base URL (https://api.example.com)"
+            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+          />
+          <select
+            value={cAuthType}
+            onChange={(e) => setCAuthType(e.target.value)}
+            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none"
+          >
+            {AUTH_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          {authFieldLabel ? (
+            <input
+              value={cAuthField}
+              onChange={(e) => setCAuthField(e.target.value)}
+              placeholder={authFieldLabel}
+              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+            />
+          ) : (
+            <input
+              value={cTestPath}
+              onChange={(e) => setCTestPath(e.target.value)}
+              placeholder="Test path (optional, e.g. /v1/models)"
+              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+            />
+          )}
+          {cAuthType !== "none" && (
+            <input
+              value={cKey}
+              onChange={(e) => setCKey(e.target.value)}
+              placeholder="API key / token"
+              type="password"
+              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+            />
+          )}
+          {authFieldLabel && (
+            <input
+              value={cTestPath}
+              onChange={(e) => setCTestPath(e.target.value)}
+              placeholder="Test path (optional)"
+              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+            />
+          )}
+          <button
+            type="submit"
+            disabled={cBusy || !cName.trim() || !cBaseUrl.trim() || (cAuthType !== "none" && !cKey.trim())}
+            className="rounded-lg bg-[var(--ag-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--ag-accent-hover)] disabled:opacity-50 sm:col-span-2"
+          >
+            {cBusy ? "Testing…" : "Save connector"}
+          </button>
+        </form>
+      </section>
+
       <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
         <h2 className="mb-3 text-lg font-semibold">Agent</h2>
         <label className="mb-1 block text-sm text-zinc-400">Model</label>
@@ -184,5 +373,6 @@ export default function SettingsClient() {
         {saved && <span className="ml-3 text-sm text-green-400">Saved ✓</span>}
       </section>
     </main>
+    </div>
   );
 }
