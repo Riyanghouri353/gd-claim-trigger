@@ -82,3 +82,23 @@ Android app → Settings → turn OFF "Automatic Background Claims".
 - If the faucet rejects a top-up or a chain is out of gas with no faucet (XDC), that
   chain is recorded as failed with the exact reason — other chains/wallets are unaffected.
 - The `/api/wake` heartbeat returns immediately; long claim runs execute in the background.
+
+## Riyan Agent (`/agent`)
+
+Personal AI chat agent living on this same service (Render free tier = one
+always-on web service). Namespaced under `/agent/*` + `/api/agent/*`; the
+claim dashboard and all `/api/*` claim routes are untouched.
+
+- First visit `/agent/setup` to set the login password, then `/agent/login`.
+- Settings → add Groq API keys (AES-256-GCM encrypted in Supabase, live-tested
+  on save). Requests rotate across healthy keys; 429s cool a key down.
+- New tables: run `supabase-agent.sql` in the same Supabase project.
+- New env vars: `VAULT_KEY`, `SESSION_SECRET`, `CRON_SECRET`
+  (`SUPABASE_URL` / `SUPABASE_SERVICE_KEY` are reused).
+- Nightly key-health check: point cron-job.org at
+  `/api/agent/cron/key-health` with `Authorization: Bearer $CRON_SECRET`.
+
+Restore point: branch `backup/pre-agent-merge` holds the exact pre-merge
+production commit. Roll back with
+`git push origin backup/pre-agent-merge:main --force`, or redeploy the
+previous deploy in the Render dashboard.

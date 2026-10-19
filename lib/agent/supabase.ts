@@ -1,0 +1,78 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { GroqKeyRow } from "./keys";
+
+/** Minimal DB typings so insert/upsert/update/select typecheck. */
+export type Database = {
+  public: {
+    Tables: {
+      app_settings: {
+        Row: { key: string; value: string };
+        Insert: { key: string; value: string };
+        Update: { key?: string; value?: string };
+        Relationships: [];
+      };
+      groq_keys: {
+        Row: GroqKeyRow;
+        Insert: {
+          label: string;
+          enc_key: string;
+          iv: string;
+          tag: string;
+          disabled?: boolean;
+          cooldown_until?: string | null;
+          last_used_at?: string | null;
+        };
+        Update: {
+          label?: string;
+          enc_key?: string;
+          iv?: string;
+          tag?: string;
+          disabled?: boolean;
+          cooldown_until?: string | null;
+          last_used_at?: string | null;
+        };
+        Relationships: [];
+      };
+      conversations: {
+        Row: { id: string; title: string | null; created_at: string };
+        Insert: { title?: string | null };
+        Update: { title?: string | null };
+        Relationships: [];
+      };
+      messages: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          role: string;
+          content: string;
+          created_at: string;
+        };
+        Insert: { conversation_id: string; role: string; content: string };
+        Update: { content?: string };
+        Relationships: [];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+  };
+}
+
+let client: SupabaseClient<Database> | null = null;
+
+/**
+ * Service-role client. Bypasses RLS — server-side only, never import into
+ * client components. All tables have RLS enabled with no public policies,
+ * so this is the only path that can read/write.
+ */
+export function getServiceClient() {
+  if (!client) {
+    const url = process.env.SUPABASE_URL;
+    // Agent reads the same Supabase project as the claim runner.
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    if (!url || !key) {
+      throw new Error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY env vars");
+    }
+    client = createClient<Database>(url, key, { auth: { persistSession: false } });
+  }
+  return client;
+}

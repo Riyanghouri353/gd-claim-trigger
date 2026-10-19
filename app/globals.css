@@ -1,3 +1,8 @@
+/* Riyan Agent: Tailwind theme + utilities only (preflight intentionally excluded
+   so the G$ dashboard's hand-written CSS is pixel-identical). */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
 /* ------------------------------------------------------------------ */
 /* G$ Claim Runner — command-center design system                      */
 /* Dark, Linear/Vercel-inspired. Single stylesheet, no dependencies.   */
@@ -709,3 +714,8 @@ details.config[open] summary::before { content: '▾'; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Riyan Agent: chat scrollbar */
+.chat-scroll::-webkit-scrollbar { width: 8px; }
+.chat-scroll::-webkit-scrollbar-thumb { background: #2a2a35; border-radius: 4px; }
+:root { color-scheme: dark; }
