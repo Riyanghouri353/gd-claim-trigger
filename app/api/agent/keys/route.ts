@@ -3,6 +3,8 @@ import { requireSession } from "@/lib/agent/auth";
 import { getServiceClient } from "@/lib/agent/supabase";
 import { encryptSecret } from "@/lib/agent/crypto";
 
+export const dynamic = "force-dynamic";
+
 async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch("https://api.groq.com/openai/v1/models", {

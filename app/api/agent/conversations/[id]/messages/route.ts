@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/agent/auth";
 import { getServiceClient } from "@/lib/agent/supabase";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireSession();

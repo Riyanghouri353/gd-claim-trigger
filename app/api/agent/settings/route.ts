@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/agent/auth";
 import { getSetting, setSetting } from "@/lib/agent/keys";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     await requireSession();

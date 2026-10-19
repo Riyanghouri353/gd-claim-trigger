@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getServiceClient } from "@/lib/agent/supabase";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const sb = getServiceClient();
   const { data }: { data: { value: string } | null } = await sb

@@ -60,6 +60,15 @@ export type Database = {
 let client: SupabaseClient<Database> | null = null;
 
 /**
+ * Next.js caches fetch() in Server Components by default — and the Supabase
+ * client uses fetch internally. Without this, the first "not set up yet"
+ * answer gets cached and the login/setup pages loop forever.
+ */
+function noStoreFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, cache: "no-store" });
+}
+
+/**
  * Service-role client. Bypasses RLS — server-side only, never import into
  * client components. All tables have RLS enabled with no public policies,
  * so this is the only path that can read/write.
@@ -72,7 +81,10 @@ export function getServiceClient() {
     if (!url || !key) {
       throw new Error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY env vars");
     }
-    client = createClient<Database>(url, key, { auth: { persistSession: false } });
+    client = createClient<Database>(url, key, {
+      auth: { persistSession: false },
+      global: { fetch: noStoreFetch },
+    });
   }
   return client;
 }
