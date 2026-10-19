@@ -1,11 +1,12 @@
 import { getServiceClient } from "./supabase";
 import { decryptSecret } from "./crypto";
 
-export type KeyProvider = "groq" | "gemini";
+export type KeyProvider = "groq" | "gemini" | "lovable";
 
-const KEY_TABLES: Record<KeyProvider, "groq_keys" | "gemini_keys"> = {
+const KEY_TABLES: Record<KeyProvider, "groq_keys" | "gemini_keys" | "lovable_keys"> = {
   groq: "groq_keys",
   gemini: "gemini_keys",
+  lovable: "lovable_keys",
 };
 
 export type GroqKeyRow = {
@@ -59,6 +60,19 @@ export async function disableKey(id: string, provider: KeyProvider = "groq") {
   await getServiceClient().from(KEY_TABLES[provider]).update({ disabled: true }).eq("id", id);
 }
 
+/** Live-test a Lovable AI Gateway key against its OpenAI-compatible endpoint. */
+export async function testLovableKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/models", {
+      headers: { "Lovable-API-Key": apiKey },
+    });
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "Invalid key" };
+    if (!res.ok) return { ok: false, error: `Lovable gateway returned ${res.status}` };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Network error reaching Lovable gateway" };
+  }
+}
 /** Live-test a Gemini API key against Google's models endpoint. */
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {

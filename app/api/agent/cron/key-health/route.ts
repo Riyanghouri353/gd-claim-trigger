@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/agent/supabase";
 import { decryptSecret } from "@/lib/agent/crypto";
-import { testGeminiKey } from "@/lib/agent/keys";
+import { testGeminiKey, testLovableKey } from "@/lib/agent/keys";
 
 /**
  * Nightly key health check.
@@ -63,6 +63,29 @@ export async function GET(req: Request) {
     } else {
       await sb.from("gemini_keys").update({ disabled: false, cooldown_until: null }).eq("id", k.id);
       report.push({ provider: "gemini", label: k.label, ok: true, note: "healthy" });
+    }
+  }
+
+  const { data: lovableKeys } = await sb.from("lovable_keys").select("*");
+  for (const k of lovableKeys ?? []) {
+    let apiKey: string;
+    try {
+      apiKey = decryptSecret({ enc: k.enc_key, iv: k.iv, tag: k.tag });
+    } catch {
+      report.push({ provider: "lovable", label: k.label, ok: false, note: "decrypt failed" });
+      continue;
+    }
+    const check = await testLovableKey(apiKey);
+    if (!check.ok) {
+      if (check.error === "Invalid key") {
+        await sb.from("lovable_keys").update({ disabled: true }).eq("id", k.id);
+        report.push({ provider: "lovable", label: k.label, ok: false, note: "invalid — disabled" });
+      } else {
+        report.push({ provider: "lovable", label: k.label, ok: false, note: check.error || "failed" });
+      }
+    } else {
+      await sb.from("lovable_keys").update({ disabled: false, cooldown_until: null }).eq("id", k.id);
+      report.push({ provider: "lovable", label: k.label, ok: true, note: "healthy" });
     }
   }
 

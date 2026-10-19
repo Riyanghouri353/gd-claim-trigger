@@ -2,6 +2,7 @@ import { streamText, convertToModelMessages, stepCountIs, tool } from "ai";
 import { NextResponse } from "next/server";
 import { createGroq } from "@ai-sdk/groq";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import { requireSession } from "@/lib/agent/auth";
 import { getServiceClient } from "@/lib/agent/supabase";
@@ -102,23 +103,42 @@ export async function POST(req: Request) {
     /* connectors unavailable — chat still works */
   }
 
-  const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
-  const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
-  const primary: KeyProvider = modelId.startsWith("gemini-") ? "gemini" : "groq";
-  // Try the selected provider first, then automatically fall back to the other.
-  const providers: KeyProvider[] = primary === "groq" ? ["groq", "gemini"] : ["gemini", "groq"];
+  const DEFAULT_MODEL: Record<KeyProvider, string> = {
+    groq: "openai/gpt-oss-120b",
+    gemini: "gemini-2.5-flash",
+    lovable: "google/gemini-3-flash-preview",
+  };
+  // Lovable gateway model ids look like "google/gemini-3-flash-preview".
+  const primary: KeyProvider = modelId.startsWith("gemini-")
+    ? "gemini"
+    : modelId.startsWith("google/")
+      ? "lovable"
+      : "groq";
+  // Try the selected provider first, then automatically fall back to the others.
+  const providers: KeyProvider[] = [
+    primary,
+    ...(["groq", "gemini", "lovable"] as KeyProvider[]).filter((p) => p !== primary),
+  ];
 
   let lastError: unknown = null;
 
   for (const provider of providers) {
-    const mid =
-      provider === primary ? modelId : provider === "groq" ? GROQ_DEFAULT_MODEL : GEMINI_DEFAULT_MODEL;
+    const mid = provider === primary ? modelId : DEFAULT_MODEL[provider];
     const candidates = await listCandidateKeys(provider);
     if (candidates.length === 0) continue;
 
     for (const keyRow of candidates) {
       const apiKey = decryptRowKey(keyRow);
-      const ai = provider === "groq" ? createGroq({ apiKey }) : createGoogleGenerativeAI({ apiKey });
+      const ai =
+        provider === "groq"
+          ? createGroq({ apiKey })
+          : provider === "gemini"
+            ? createGoogleGenerativeAI({ apiKey })
+            : createOpenAI({
+                baseURL: "https://ai.gateway.lovable.dev/v1",
+                apiKey,
+                headers: { "Lovable-API-Key": apiKey },
+              });
 
     const tools: Record<string, any> = {
       get_current_time: tool({
@@ -198,6 +218,6 @@ export async function POST(req: Request) {
     }
   }
 
-  console.error("All Groq and Gemini keys failed", lastError);
-  return NextResponse.json({ error: "All Groq and Gemini keys failed. Check Settings → Keys." }, { status: 502 });
+  console.error("All Groq, Gemini and Lovable keys failed", lastError);
+  return NextResponse.json({ error: "All Groq, Gemini and Lovable keys failed. Check Settings → Keys." }, { status: 502 });
 }
