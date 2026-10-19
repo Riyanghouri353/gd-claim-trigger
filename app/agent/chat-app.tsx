@@ -56,10 +56,8 @@ function friendlyError(msg: string): string {
     return "Network error — your connection dropped. Check your signal and hit Retry.";
   if (m.includes("rate limit") || m.includes("429") || m.includes("too many"))
     return "Groq rate limit hit — too much too fast. Wait a few seconds, then hit Retry; your keys rotate automatically.";
-  if (m.includes("no active") || m.includes("503"))
-    return "No healthy Groq keys right now. Check Settings → Groq API keys.";
-  if (m.includes("all groq keys failed") || m.includes("502"))
-    return "All Groq keys failed. Check Settings → Groq API keys.";
+  if (m.includes("keys failed") || m.includes("502") || m.includes("no active"))
+    return "All API keys failed or none are configured. Check Settings → Keys.";
   return `Something went wrong: ${msg}`;
 }
 

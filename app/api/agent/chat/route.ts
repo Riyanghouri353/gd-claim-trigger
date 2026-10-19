@@ -38,6 +38,29 @@ function errorInfo(err: unknown): { status?: number; retryAfter?: number } {
   };
 }
 
+/**
+ * Fetch wrapper for the Lovable gateway: strips the SDK's forced
+ * `Authorization: Bearer` header. The gateway only accepts its own
+ * `Lovable-API-Key` header (sending both breaks auth).
+ */
+const lovableFetch = async (url: any, init: any): Promise<Response> => {
+  const headers = new Headers(init?.headers);
+  headers.delete("authorization");
+  return fetch(url, { ...init, headers });
+};
+
+/** Human-readable error message sent to the chat client on stream failure. */
+function streamErrorMessage(error: unknown): string {
+  const { status } = errorInfo(error);
+  if (status === 429) return "Rate limit hit on all providers — wait a few seconds and hit Retry.";
+  if (status === 401 || status === 403)
+    return "API key rejected by the provider. Check Settings → Keys.";
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  if (/network|fetch failed|econn|etimedout|enotfound|socket/i.test(msg))
+    return "Network error reaching the AI provider. Check your connection and hit Retry.";
+  return `Provider error: ${msg.slice(0, 220)}`;
+}
+
 async function persistTurn(conversationId: string, messages: any[], assistantText: string) {
   try {
     const sb = getServiceClient();
@@ -137,8 +160,9 @@ export async function POST(req: Request) {
             ? createGoogleGenerativeAI({ apiKey })
             : createOpenAI({
                 baseURL: "https://ai.gateway.lovable.dev/v1",
-                apiKey,
+                apiKey: "lovable-gateway", // placeholder; real auth is the header below, Bearer is stripped
                 headers: { "Lovable-API-Key": apiKey },
+                fetch: lovableFetch,
               });
 
     const tools: Record<string, any> = {
@@ -205,7 +229,13 @@ export async function POST(req: Request) {
           } catch {}
         },
       });
-      return result.toUIMessageStreamResponse();
+      return result.toUIMessageStreamResponse({
+        // Replaces the SDK's default "An error occurred." with something useful.
+        onError: (error) => {
+          console.error("chat stream error", error);
+          return streamErrorMessage(error);
+        },
+      });
     } catch (err) {
       // Synchronous failure before streaming (bad key etc.) — try next key.
       lastError = err;
