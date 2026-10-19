@@ -1,4 +1,5 @@
 import { streamText, convertToModelMessages, stepCountIs, tool } from "ai";
+import { NextResponse } from "next/server";
 import { createGroq } from "@ai-sdk/groq";
 import { z } from "zod";
 import { requireSession } from "@/lib/agent/auth";
@@ -69,12 +70,12 @@ export async function POST(req: Request) {
   try {
     await requireSession();
   } catch {
-    return new Response("Unauthorized", { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { messages, conversationId } = await req.json();
   if (!Array.isArray(messages) || messages.length === 0) {
-    return new Response("No messages", { status: 400 });
+    return NextResponse.json({ error: "No messages" }, { status: 400 });
   }
 
   const modelMessages = await convertToModelMessages(messages);
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
 
   const candidates = await listCandidateKeys();
   if (candidates.length === 0) {
-    return new Response("No active Groq keys. Add one in Settings.", { status: 503 });
+    return NextResponse.json({ error: "No active Groq keys. Add one in Settings." }, { status: 503 });
   }
 
   let lastError: unknown = null;
@@ -118,7 +119,7 @@ export async function POST(req: Request) {
       }),
       call_connector: tool({
         description:
-          "Call a saved API connector (configured in Settings & keys). The API key is injected server-side — never ask the user for it. Returns { ok, status, body }.",
+          "Call a saved API connector (configured in Settings & keys). The API key is injected server-side — never ask the user for it. Returns { ok, status, body, truncated }. For list endpoints pass query { per_page: '20' } to keep responses small; bodies over 6000 chars are truncated.",
         inputSchema: z.object({
           connector: z.string().describe("Connector name exactly as shown in Settings"),
           method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
@@ -129,9 +130,9 @@ export async function POST(req: Request) {
         execute: async ({ connector, method, path, query, body }) => {
           try {
             const r = await callConnector(connector, method, path, query, body);
-            return { ok: r.ok, status: r.status, body: r.body };
+            return { ok: r.ok, status: r.status, body: r.body, truncated: r.truncated };
           } catch (e: any) {
-            return { ok: false, status: 0, body: `Connector error: ${e?.message || e}` };
+            return { ok: false, status: 0, body: `Connector error: ${e?.message || e}`, truncated: false };
           }
         },
       }),
@@ -183,5 +184,5 @@ export async function POST(req: Request) {
   }
 
   console.error("All Groq keys failed", lastError);
-  return new Response("All Groq keys failed. Check Settings → Keys.", { status: 502 });
+  return NextResponse.json({ error: "All Groq keys failed. Check Settings → Keys." }, { status: 502 });
 }

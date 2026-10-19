@@ -160,6 +160,7 @@ export interface ConnectorCallResult {
   ok: boolean;
   status: number;
   body: string;
+  truncated: boolean;
 }
 
 /** Execute an HTTP call through a saved connector (server-side, key injected). */
@@ -180,5 +181,8 @@ export async function callConnector(
   }
   const res = await fetchWithTimeout(url, init);
   const text = await res.text();
-  return { ok: res.ok, status: res.status, body: text.slice(0, 12000) };
+  // Keep tool payloads small: huge responses get re-sent with every chat turn
+  // and blow Groq's per-minute token limit.
+  const truncated = text.length > 6000;
+  return { ok: res.ok, status: res.status, body: truncated ? text.slice(0, 6000) : text, truncated };
 }

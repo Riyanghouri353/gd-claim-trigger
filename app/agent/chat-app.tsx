@@ -49,6 +49,119 @@ function I({ children, className }: { children: React.ReactNode; className?: str
   );
 }
 
+/** Turn a raw chat error into something a human can act on. */
+function friendlyError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes("rate limit") || m.includes("429") || m.includes("too many"))
+    return "Groq rate limit hit — too much too fast. Wait a few seconds, then hit Retry; your keys rotate automatically.";
+  if (m.includes("no active") || m.includes("503"))
+    return "No healthy Groq keys right now. Check Settings → Groq API keys.";
+  if (m.includes("all groq keys failed") || m.includes("502"))
+    return "All Groq keys failed. Check Settings → Groq API keys.";
+  return `Something went wrong: ${msg}`;
+}
+
+/** Pretty-print a JSON-ish value for the tool inspector. */
+function prettyJson(v: unknown): string {
+  try {
+    const s = typeof v === "string" ? v : JSON.stringify(v);
+    try {
+      return JSON.stringify(JSON.parse(s), null, 2);
+    } catch {
+      return s;
+    }
+  } catch {
+    return String(v);
+  }
+}
+
+/** Expandable inspector for a tool call: tap to see the request and response. */
+function ToolCallCard({ part }: { part: any }) {
+  const [open, setOpen] = useState(false);
+  const name: string = toolLabel(part);
+  const input: any = part.input ?? {};
+  const output: any = part.output;
+  const state: string = part.state ?? "";
+  const done = state === "output-available";
+  const failed = state === "output-error";
+  const running = !done && !failed;
+  const isConnector = name === "call_connector";
+
+  const requestView = isConnector
+    ? {
+        connector: input.connector,
+        method: input.method,
+        path: input.path,
+        ...(input.query && Object.keys(input.query).length ? { query: input.query } : {}),
+        ...(input.body !== undefined ? { body: input.body } : {}),
+      }
+    : input;
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-xl border border-[var(--ag-border)] bg-black/25">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+      >
+        <span className="text-xs">🔧</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-[var(--ag-muted)]">
+          {running ? (
+            <>Calling {isConnector ? <b>{input.connector || name}</b> : <b>{name}</b>}…</>
+          ) : (
+            <>
+              Used {isConnector ? <b>{input.connector || name}</b> : <b>{name}</b>}{" "}
+              {failed ? "✗" : "✓"}
+            </>
+          )}
+        </span>
+        {done && output && typeof output.status === "number" && (
+          <span
+            className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
+              output.ok
+                ? "bg-[var(--ag-accent-soft)] text-[var(--ag-accent-text)]"
+                : "bg-[var(--ag-danger-soft)] text-[var(--ag-danger)]"
+            }`}
+          >
+            {output.status}
+          </span>
+        )}
+        <span
+          className={`text-[var(--ag-faint)] transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--ag-border)] px-3 py-2.5">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ag-faint)]">
+            Request
+          </p>
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2.5 text-[11px] leading-relaxed text-[var(--ag-muted)]">
+            {prettyJson(requestView)}
+          </pre>
+          <p className="mb-1 mt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ag-faint)]">
+            Response
+          </p>
+          {done && output ? (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2.5 text-[11px] leading-relaxed text-[var(--ag-muted)]">
+              {typeof output.body === "string"
+                ? `HTTP ${output.status}\n${prettyJson(output.body)}${
+                    output.truncated ? "\n…(truncated)" : ""
+                  }`
+                : prettyJson(output)}
+            </pre>
+          ) : (
+            <p className="text-[11px] text-[var(--ag-faint)]">
+              {failed ? part.errorText || "Tool failed" : "Waiting for response…"}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Bucket a conversation timestamp into a recency group for the sidebar. */
 function dayBucket(iso: string): string {
   const d = new Date(iso);
@@ -410,12 +523,7 @@ export default function ChatApp() {
                       );
                     }
                     if (typeof part.type === "string" && part.type.includes("tool")) {
-                      return (
-                        <p key={i} className="mt-1 text-xs text-[var(--ag-muted)]">
-                          🔧 used {toolLabel(part)}
-                          {part.state === "output-available" || part.output ? " ✓" : "…"}
-                        </p>
-                      );
+                      return <ToolCallCard key={i} part={part} />;
                     }
                     return null;
                   })}
@@ -431,7 +539,7 @@ export default function ChatApp() {
             )}
             {error && (
               <div className="rounded-xl border border-[var(--ag-danger-border)] bg-[var(--ag-danger-bg)] p-4 text-sm">
-                <p className="text-[var(--ag-danger)]">Something went wrong: {error.message}</p>
+                <p className="text-[var(--ag-danger)]">{error ? friendlyError(error.message) : ""}</p>
                 <button
                   onClick={() => regenerate()}
                   className="mt-2 rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-sm hover:bg-[var(--ag-active)]"
