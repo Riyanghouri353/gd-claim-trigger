@@ -21,6 +21,7 @@ export default function ChatApp() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const cidRef = useRef<string | null>(null);
   const [, forceRender] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -62,6 +63,7 @@ export default function ChatApp() {
 
   async function openConversation(id: string) {
     setConversation(id);
+    setSidebarOpen(false);
     const res = await fetch(`/api/agent/conversations/${id}/messages`);
     if (res.ok) {
       const j = await res.json();
@@ -72,6 +74,7 @@ export default function ChatApp() {
   function newChat() {
     setConversation(null);
     setMessages([]);
+    setSidebarOpen(false);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -106,18 +109,37 @@ export default function ChatApp() {
   }
 
   return (
-    <div className="flex h-screen">
-      {/* Sidebar */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
-        <div className="p-3">
+    <div className="flex h-screen overflow-hidden">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — drawer on mobile, fixed on desktop */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-transform duration-200 md:static md:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between p-3 pb-0">
           <button
             onClick={newChat}
-            className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium hover:bg-indigo-500"
+            className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium hover:bg-indigo-500"
           >
             + New chat
           </button>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="ml-2 rounded-lg p-2 text-zinc-400 hover:bg-zinc-900 md:hidden"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
         </div>
-        <div className="chat-scroll flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+        <div className="chat-scroll flex-1 space-y-1 overflow-y-auto px-2 py-2">
           {conversations.map((c) => (
             <div
               key={c.id}
@@ -147,7 +169,7 @@ export default function ChatApp() {
           </button>
           <button
             onClick={logout}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
           >
             Log out
           </button>
@@ -155,13 +177,25 @@ export default function ChatApp() {
       </aside>
 
       {/* Chat */}
-      <main className="flex flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-2 py-2 md:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-2 text-zinc-200 hover:bg-zinc-900"
+            aria-label="Open menu"
+          >
+            <span className="block text-xl leading-none">☰</span>
+          </button>
+          <span className="truncate text-sm font-semibold">Riyan Agent</span>
+        </div>
+
         <div className="chat-scroll flex-1 overflow-y-auto px-4 py-6">
           <div className="mx-auto max-w-3xl space-y-5">
             {messages.length === 0 && (
-              <div className="pt-24 text-center">
-                <h1 className="text-3xl font-bold">Riyan Agent</h1>
-                <p className="mt-2 text-zinc-400">
+              <div className="pt-16 text-center md:pt-24">
+                <h1 className="text-2xl font-bold md:text-3xl">Riyan Agent</h1>
+                <p className="mt-2 text-sm text-zinc-400 md:text-base">
                   Ask anything. I can search the web when it helps.
                 </p>
               </div>
@@ -169,14 +203,14 @@ export default function ChatApp() {
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
+                  className={`max-w-[90%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed md:max-w-[85%] ${
                     m.role === "user" ? "bg-indigo-600 text-white" : "bg-zinc-900 text-zinc-100"
                   }`}
                 >
                   {m.parts.map((part: any, i: number) => {
                     if (part.type === "text") {
                       return (
-                        <p key={i} className="whitespace-pre-wrap">
+                        <p key={i} className="whitespace-pre-wrap break-words">
                           {part.text}
                         </p>
                       );
@@ -216,18 +250,18 @@ export default function ChatApp() {
           </div>
         </div>
 
-        <div className="border-t border-zinc-800 p-4">
+        <div className="shrink-0 border-t border-zinc-800 p-3 md:p-4">
           <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Message Riyan Agent…"
-              className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-indigo-500"
+              className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-indigo-500"
             />
             <button
               type="submit"
               disabled={busy || !input.trim()}
-              className="rounded-xl bg-indigo-600 px-5 py-3 font-medium hover:bg-indigo-500 disabled:opacity-50"
+              className="shrink-0 rounded-xl bg-indigo-600 px-4 py-3 font-medium hover:bg-indigo-500 disabled:opacity-50 md:px-5"
             >
               Send
             </button>
