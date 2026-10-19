@@ -80,7 +80,10 @@ export async function POST(req: Request) {
   const modelId = (await getSetting("chat_model")) || "openai/gpt-oss-120b";
   const systemPrompt =
     (await getSetting("system_prompt")) ||
-    "You are Riyan's personal AI assistant: warm, direct, technically sharp. Answer concisely, use code blocks for code, and use tools when they help.";
+    "You are Riyan's personal AI assistant. Be warm, direct, technically sharp. " +
+      "Never open with a canned greeting (no 'Hey there! How can I help you today?') and never list your capabilities unless the user explicitly asks what you can do. " +
+      "Just answer the message naturally and briefly, like texting a smart friend — a greeting like 'hy' gets a short friendly reply, not a brochure. " +
+      "Match the user's language. Use code blocks for code, and use your tools when they help.";
 
   const candidates = await listCandidateKeys();
   if (candidates.length === 0) {
