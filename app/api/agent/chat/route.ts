@@ -88,7 +88,8 @@ export async function POST(req: Request) {
     "You are Riyan's personal AI assistant. Be warm, direct, technically sharp. " +
       "Never open with a canned greeting (no 'Hey there! How can I help you today?') and never list your capabilities unless the user explicitly asks what you can do. " +
       "Just answer the message naturally and briefly, like texting a smart friend — a greeting like 'hy' gets a short friendly reply, not a brochure. " +
-      "Match the user's language. Use code blocks for code, and use your tools when they help.";
+      "Match the user's language. Use code blocks for code, and use your tools when they help. " +
+      "After a tool returns data, ALWAYS present it to the user as a clean formatted summary in chat (lists, short tables) — never end your turn with only tool calls and no text.";
 
   // Tell the model which API connectors exist so it can call them.
   try {
@@ -148,7 +149,11 @@ export async function POST(req: Request) {
       }),
       call_connector: tool({
         description:
-          "Call a saved API connector (configured in Settings & keys). The API key is injected server-side — never ask the user for it. Returns { ok, status, body, truncated }. For list endpoints pass query { per_page: '20' } to keep responses small; bodies over 6000 chars are truncated.",
+          "Call a saved API connector (configured in Settings & keys). The API key is injected server-side — never ask the user for it. " +
+          "Returns { ok, status, body, truncated } where body is compact valid JSON (complete items only). " +
+          "For list endpoints pass query { per_page: '20' } to keep responses small. " +
+          "Never call the same endpoint twice with identical parameters — use the first result. " +
+          "After the tool returns, always summarize the data for the user in chat.",
         inputSchema: z.object({
           connector: z.string().describe("Connector name exactly as shown in Settings"),
           method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
@@ -186,7 +191,7 @@ export async function POST(req: Request) {
         system: systemPrompt,
         messages: modelMessages,
         tools,
-        stopWhen: stepCountIs(6),
+        stopWhen: stepCountIs(8),
         onFinish: async ({ text }) => {
           await markKeyUsed(keyRow.id, provider);
           if (conversationId) await persistTurn(conversationId, messages, text);

@@ -163,6 +163,51 @@ export interface ConnectorCallResult {
   truncated: boolean;
 }
 
+/** Recursively shrink a JSON value: trim long strings, cap nesting depth. */
+function compactValue(v: any, depth: number): any {
+  if (v === null || v === undefined) return v;
+  if (Array.isArray(v)) {
+    if (depth > 3) return `[${v.length} items]`;
+    return v.slice(0, 50).map((i) => compactValue(i, depth + 1));
+  }
+  if (typeof v === "object") {
+    if (depth > 3) return "{…}";
+    const o: Record<string, any> = {};
+    for (const [k, val] of Object.entries(v)) {
+      o[k] = typeof val === "string" && val.length > 250 ? val.slice(0, 250) + "…" : compactValue(val, depth + 1);
+    }
+    return o;
+  }
+  if (typeof v === "string" && v.length > 500) return v.slice(0, 500) + "…";
+  return v;
+}
+
+/**
+ * Make a tool response model-friendly: always valid JSON made of COMPLETE
+ * items (never chopped mid-object), capped in size, with a _meta note when
+ * items were dropped. Falls back to plain truncation for non-JSON bodies.
+ */
+function compactBody(text: string, maxChars = 5000): { body: string; truncated: boolean } {
+  let v: any;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return { body: text.slice(0, maxChars), truncated: text.length > maxChars };
+  }
+  if (Array.isArray(v)) {
+    let items = v.map((i) => compactValue(i, 0));
+    while (items.length > 1 && JSON.stringify(items).length > maxChars) items.pop();
+    const body =
+      items.length < v.length
+        ? JSON.stringify({ data: items, _meta: { showing: items.length, total: v.length } })
+        : JSON.stringify(items);
+    return { body, truncated: items.length < v.length };
+  }
+  const compacted = JSON.stringify(compactValue(v, 0));
+  if (compacted.length <= maxChars) return { body: compacted, truncated: false };
+  return { body: compacted.slice(0, maxChars), truncated: true };
+}
+
 /** Execute an HTTP call through a saved connector (server-side, key injected). */
 export async function callConnector(
   name: string,
@@ -181,8 +226,8 @@ export async function callConnector(
   }
   const res = await fetchWithTimeout(url, init);
   const text = await res.text();
-  // Keep tool payloads small: huge responses get re-sent with every chat turn
-  // and blow Groq's per-minute token limit.
-  const truncated = text.length > 6000;
-  return { ok: res.ok, status: res.status, body: truncated ? text.slice(0, 6000) : text, truncated };
+  // Compact the payload so the model always gets complete, valid JSON
+  // (never chopped mid-object) — broken JSON makes it re-call the tool.
+  const { body: compacted, truncated } = compactBody(text);
+  return { ok: res.ok, status: res.status, body: compacted, truncated };
 }

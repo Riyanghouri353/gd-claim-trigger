@@ -52,6 +52,8 @@ function I({ children, className }: { children: React.ReactNode; className?: str
 /** Turn a raw chat error into something a human can act on. */
 function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
+  if (m.includes("network error") || m.includes("failed to fetch") || m.includes("load failed"))
+    return "Network error — your connection dropped. Check your signal and hit Retry.";
   if (m.includes("rate limit") || m.includes("429") || m.includes("too many"))
     return "Groq rate limit hit — too much too fast. Wait a few seconds, then hit Retry; your keys rotate automatically.";
   if (m.includes("no active") || m.includes("503"))
