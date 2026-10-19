@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import styles from "./agent-theme.module.css";
 
 interface Conversation {
   id: string;
@@ -177,7 +178,7 @@ export default function ChatApp() {
   const activeId = cidRef.current;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className={`${styles.theme} flex h-screen overflow-hidden bg-[var(--ag-bg)] text-[var(--ag-text)]`}>
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
@@ -188,27 +189,27 @@ export default function ChatApp() {
 
       {/* Sidebar — drawer on mobile, fixed on desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[280px] shrink-0 flex-col bg-zinc-950 transition-transform duration-200 md:static md:w-72 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[280px] shrink-0 flex-col border-r border-[var(--ag-border)] bg-[var(--ag-sidebar)] transition-transform duration-200 md:static md:w-72 md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Brand */}
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-zinc-800/60 px-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-950/50">
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--ag-border)] px-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--ag-accent)] to-[var(--ag-accent-deep)] text-white shadow-lg shadow-black/40">
             <I className="h-[18px] w-[18px]"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" /></I>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold tracking-tight text-zinc-100">
+            <p className="truncate text-sm font-semibold tracking-tight text-[var(--ag-text)]">
               Riyan Agent
             </p>
-            <p className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <p className="flex items-center gap-1.5 text-[11px] text-[var(--ag-muted)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ag-online)]" />
               Ready
             </p>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300 md:hidden"
+            className="rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)] md:hidden"
             aria-label="Close menu"
           >
             <I className="h-4 w-4"><path d="M18 6 6 18M6 6l12 12" /></I>
@@ -219,24 +220,24 @@ export default function ChatApp() {
         <div className="shrink-0 space-y-2 px-3 pt-3">
           <button
             onClick={newChat}
-            className="flex h-10 w-full items-center gap-2.5 rounded-xl bg-indigo-600 px-3.5 text-sm font-medium text-white shadow-md shadow-indigo-950/40 transition hover:bg-indigo-500 active:scale-[0.99]"
+            className="flex h-10 w-full items-center gap-2.5 rounded-xl bg-[var(--ag-accent)] px-3.5 text-sm font-medium text-white shadow-md shadow-black/40 transition hover:bg-[var(--ag-accent-hover)] active:scale-[0.99]"
           >
             <I className="h-4 w-4"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></I>
             New chat
           </button>
-          <label className="flex h-9 items-center gap-2 rounded-xl bg-zinc-900/80 px-3 text-sm ring-1 ring-zinc-800/60 transition focus-within:ring-indigo-500/60">
-            <I className="h-4 w-4 shrink-0 text-zinc-600"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></I>
+          <label className="flex h-9 items-center gap-2 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 text-sm transition focus-within:border-[var(--ag-accent)]">
+            <I className="h-4 w-4 shrink-0 text-[var(--ag-faint)]"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></I>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search chats"
               aria-label="Search chats"
-              className="w-full min-w-0 bg-transparent text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+              className="w-full min-w-0 bg-transparent text-[var(--ag-text)] placeholder:text-[var(--ag-faint)] focus:outline-none"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
-                className="shrink-0 rounded-md p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
+                className="shrink-0 rounded-md p-0.5 text-[var(--ag-faint)] transition-colors hover:text-[var(--ag-text)]"
                 aria-label="Clear search"
               >
                 <I className="h-3.5 w-3.5"><path d="M18 6 6 18M6 6l12 12" /></I>
@@ -249,25 +250,25 @@ export default function ChatApp() {
         <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {groups.length === 0 && !search && (
             <div className="flex flex-col items-center px-6 py-10 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-900 text-zinc-600 ring-1 ring-zinc-800/60">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--ag-border)] bg-[var(--ag-surface)] text-[var(--ag-faint)]">
                 <I className="h-5 w-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></I>
               </div>
-              <p className="mt-3 text-sm font-medium text-zinc-400">
+              <p className="mt-3 text-sm font-medium text-[var(--ag-muted)]">
                 No conversations yet
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-zinc-600">
+              <p className="mt-1 text-xs leading-relaxed text-[var(--ag-faint)]">
                 Start a new chat above — your history will appear here.
               </p>
             </div>
           )}
           {groups.length === 0 && search && (
-            <p className="px-2 py-10 text-center text-xs leading-relaxed text-zinc-600">
+            <p className="px-2 py-10 text-center text-xs leading-relaxed text-[var(--ag-faint)]">
               No chats match “{search.trim()}”.
             </p>
           )}
           {groups.map((g) => (
             <div key={g.label} className="mb-4 last:mb-0">
-              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
+              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ag-faint)]">
                 {g.label}
               </p>
               <ul className="space-y-0.5">
@@ -278,11 +279,11 @@ export default function ChatApp() {
                     <li key={c.id}>
                       <div
                         className={`group relative flex items-center rounded-xl transition-colors ${
-                          active ? "bg-zinc-800/90" : "hover:bg-zinc-900"
+                          active ? "bg-[var(--ag-active)]" : "hover:bg-[var(--ag-surface)]"
                         }`}
                       >
                         {active && (
-                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-indigo-500" />
+                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--ag-accent)]" />
                         )}
                         <button
                           onClick={() => openConversation(c.id)}
@@ -292,7 +293,7 @@ export default function ChatApp() {
                         >
                           <I
                             className={`h-4 w-4 shrink-0 ${
-                              active ? "text-indigo-400" : "text-zinc-600"
+                              active ? "text-[var(--ag-accent-text)]" : "text-[var(--ag-faint)]"
                             }`}
                           >
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -300,8 +301,8 @@ export default function ChatApp() {
                           <span
                             className={`truncate text-sm ${
                               active
-                                ? "font-medium text-zinc-100"
-                                : "text-zinc-400 group-hover:text-zinc-200"
+                                ? "font-medium text-[var(--ag-text)]"
+                                : "text-[var(--ag-muted)] group-hover:text-[var(--ag-text)]"
                             }`}
                           >
                             {title}
@@ -309,7 +310,7 @@ export default function ChatApp() {
                         </button>
                         <button
                           onClick={() => deleteConversation(c.id)}
-                          className="mr-1.5 shrink-0 rounded-lg p-1.5 text-zinc-600 transition-all hover:bg-red-500/10 hover:text-red-400 focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                          className="mr-1.5 shrink-0 rounded-lg p-1.5 text-[var(--ag-faint)] transition-all hover:bg-[var(--ag-danger-soft)] hover:text-[var(--ag-danger)] focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
                           title="Delete chat"
                           aria-label={`Delete chat: ${title}`}
                         >
@@ -325,20 +326,20 @@ export default function ChatApp() {
         </div>
 
         {/* Footer — profile row */}
-        <div className="shrink-0 border-t border-zinc-800/60 p-3">
+        <div className="shrink-0 border-t border-[var(--ag-border)] p-3">
           <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-sm font-semibold text-zinc-200 ring-1 ring-zinc-700/50">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--ag-border)] bg-[var(--ag-surface-2)] text-sm font-semibold text-[var(--ag-text)]">
               R
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-zinc-200">Riyan</p>
-              <p className="truncate text-[11px] text-zinc-500">
+              <p className="truncate text-sm font-medium text-[var(--ag-text)]">Riyan</p>
+              <p className="truncate text-[11px] text-[var(--ag-muted)]">
                 Personal workspace
               </p>
             </div>
             <button
               onClick={() => router.push("/agent/settings")}
-              className="shrink-0 rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+              className="shrink-0 rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)]"
               title="Settings & keys"
               aria-label="Settings & keys"
             >
@@ -349,7 +350,7 @@ export default function ChatApp() {
             </button>
             <button
               onClick={logout}
-              className="shrink-0 rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+              className="shrink-0 rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)]"
               title="Log out"
               aria-label="Log out"
             >
@@ -366,10 +367,10 @@ export default function ChatApp() {
       {/* Chat */}
       <main className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-2 py-2 md:hidden">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--ag-border)] px-2 py-2 md:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded-lg p-2 text-zinc-200 hover:bg-zinc-900"
+            className="rounded-lg p-2 text-[var(--ag-text)] hover:bg-[var(--ag-surface-2)]"
             aria-label="Open menu"
           >
             <I className="h-5 w-5"><path d="M4 6h16M4 12h16M4 18h16" /></I>
@@ -382,7 +383,7 @@ export default function ChatApp() {
             {messages.length === 0 && (
               <div className="pt-16 text-center md:pt-24">
                 <h1 className="text-2xl font-bold md:text-3xl">Riyan Agent</h1>
-                <p className="mt-2 text-sm text-zinc-400 md:text-base">
+                <p className="mt-2 text-sm text-[var(--ag-muted)] md:text-base">
                   Ask anything. I can search the web when it helps.
                 </p>
               </div>
@@ -391,7 +392,7 @@ export default function ChatApp() {
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`max-w-[90%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed md:max-w-[85%] ${
-                    m.role === "user" ? "bg-indigo-600 text-white" : "bg-zinc-900 text-zinc-100"
+                    m.role === "user" ? "bg-[var(--ag-accent)] text-white" : "bg-[var(--ag-surface)] text-[var(--ag-text)]"
                   }`}
                 >
                   {m.parts.map((part: any, i: number) => {
@@ -401,7 +402,7 @@ export default function ChatApp() {
                           {part.text}
                         </p>
                       ) : (
-                        <div key={i} className="agent-md break-words">
+                        <div key={i} className={`${styles.md} break-words`}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                             {part.text}
                           </ReactMarkdown>
@@ -410,7 +411,7 @@ export default function ChatApp() {
                     }
                     if (typeof part.type === "string" && part.type.includes("tool")) {
                       return (
-                        <p key={i} className="mt-1 text-xs text-zinc-400">
+                        <p key={i} className="mt-1 text-xs text-[var(--ag-muted)]">
                           🔧 used {toolLabel(part)}
                           {part.state === "output-available" || part.output ? " ✓" : "…"}
                         </p>
@@ -423,17 +424,17 @@ export default function ChatApp() {
             ))}
             {busy && messages[messages.length - 1]?.role === "user" && (
               <div className="flex justify-start">
-                <div className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
+                <div className="rounded-2xl bg-[var(--ag-surface)] px-4 py-3 text-sm text-[var(--ag-muted)]">
                   Thinking…
                 </div>
               </div>
             )}
             {error && (
-              <div className="rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm">
-                <p className="text-red-300">Something went wrong: {error.message}</p>
+              <div className="rounded-xl border border-[var(--ag-danger-border)] bg-[var(--ag-danger-bg)] p-4 text-sm">
+                <p className="text-[var(--ag-danger)]">Something went wrong: {error.message}</p>
                 <button
                   onClick={() => regenerate()}
-                  className="mt-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm hover:bg-zinc-700"
+                  className="mt-2 rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-sm hover:bg-[var(--ag-active)]"
                 >
                   ↻ Retry
                 </button>
@@ -443,18 +444,18 @@ export default function ChatApp() {
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-zinc-800 p-3 md:p-4">
+        <div className="shrink-0 border-t border-[var(--ag-border)] p-3 md:p-4">
           <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Message Riyan Agent…"
-              className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-indigo-500"
+              className="min-w-0 flex-1 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-4 py-3 outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
             />
             <button
               type="submit"
               disabled={busy || !input.trim()}
-              className="shrink-0 rounded-xl bg-indigo-600 px-4 py-3 font-medium hover:bg-indigo-500 disabled:opacity-50 md:px-5"
+              className="shrink-0 rounded-xl bg-[var(--ag-accent)] px-4 py-3 font-medium text-white hover:bg-[var(--ag-accent-hover)] disabled:opacity-50 md:px-5"
             >
               Send
             </button>
