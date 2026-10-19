@@ -1,6 +1,13 @@
 import { getServiceClient } from "./supabase";
 import { decryptSecret } from "./crypto";
 
+export type KeyProvider = "groq" | "gemini";
+
+const KEY_TABLES: Record<KeyProvider, "groq_keys" | "gemini_keys"> = {
+  groq: "groq_keys",
+  gemini: "gemini_keys",
+};
+
 export type GroqKeyRow = {
   id: string;
   label: string;
@@ -17,10 +24,10 @@ export type GroqKeyRow = {
  * Candidate keys for the next request: enabled, not cooling down,
  * ordered least-recently-used first (round-robin).
  */
-export async function listCandidateKeys(): Promise<GroqKeyRow[]> {
+export async function listCandidateKeys(provider: KeyProvider = "groq"): Promise<GroqKeyRow[]> {
   const sb = getServiceClient();
   const { data, error } = await sb
-    .from("groq_keys")
+    .from(KEY_TABLES[provider])
     .select("*")
     .eq("disabled", false)
     .or("cooldown_until.is.null,cooldown_until.lt.now()")
@@ -34,22 +41,42 @@ export function decryptRowKey(row: GroqKeyRow): string {
   return decryptSecret({ enc: row.enc_key, iv: row.iv, tag: row.tag });
 }
 
-export async function markKeyUsed(id: string) {
+export async function markKeyUsed(id: string, provider: KeyProvider = "groq") {
   await getServiceClient()
-    .from("groq_keys")
+    .from(KEY_TABLES[provider])
     .update({ last_used_at: new Date().toISOString(), cooldown_until: null })
     .eq("id", id);
 }
 
 /** Park a key until `seconds` pass (used on 429 rate limits). */
-export async function cooldownKey(id: string, seconds: number) {
+export async function cooldownKey(id: string, seconds: number, provider: KeyProvider = "groq") {
   const until = new Date(Date.now() + seconds * 1000).toISOString();
-  await getServiceClient().from("groq_keys").update({ cooldown_until: until }).eq("id", id);
+  await getServiceClient().from(KEY_TABLES[provider]).update({ cooldown_until: until }).eq("id", id);
 }
 
 /** Permanently disable a key (used on 401 invalid key). */
-export async function disableKey(id: string) {
-  await getServiceClient().from("groq_keys").update({ disabled: true }).eq("id", id);
+export async function disableKey(id: string, provider: KeyProvider = "groq") {
+  await getServiceClient().from(KEY_TABLES[provider]).update({ disabled: true }).eq("id", id);
+}
+
+/** Live-test a Gemini API key against Google's models endpoint. */
+export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
+    );
+    if (res.status === 400) {
+      const j = await res.json().catch(() => null);
+      const msg = String(j?.error?.message || "");
+      if (/api key not valid|invalid/i.test(msg)) return { ok: false, error: "Invalid key" };
+      return { ok: true }; // key exists, other 400 reason
+    }
+    if (res.status === 403) return { ok: false, error: "Key rejected (403)" };
+    if (!res.ok) return { ok: false, error: `Google returned ${res.status}` };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Network error reaching Google" };
+  }
 }
 
 export async function getSetting(key: string): Promise<string | null> {

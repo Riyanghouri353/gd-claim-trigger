@@ -33,6 +33,8 @@ const AUTH_TYPES = [
 const MODELS = [
   "openai/gpt-oss-120b",
   "openai/gpt-oss-20b",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
   "llama-3.3-70b-versatile",
   "qwen/qwen3-32b",
 ];
@@ -47,6 +49,11 @@ export default function SettingsClient() {
   const [model, setModel] = useState(MODELS[0]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [saved, setSaved] = useState(false);
+  const [gKeys, setGKeys] = useState<KeyRow[]>([]);
+  const [gLabel, setGLabel] = useState("");
+  const [gKeyValue, setGKeyValue] = useState("");
+  const [gBusy, setGBusy] = useState(false);
+  const [gMsg, setGMsg] = useState("");
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
   const [cName, setCName] = useState("");
   const [cBaseUrl, setCBaseUrl] = useState("");
@@ -61,12 +68,14 @@ export default function SettingsClient() {
   const [dNote, setDNote] = useState("");
 
   async function load() {
-    const [kr, sr, cr] = await Promise.all([
+    const [kr, gkr, sr, cr] = await Promise.all([
       fetch("/api/agent/keys"),
+      fetch("/api/agent/gemini-keys"),
       fetch("/api/agent/settings"),
       fetch("/api/agent/connectors"),
     ]);
     if (kr.ok) setKeys((await kr.json()).keys ?? []);
+    if (gkr.ok) setGKeys((await gkr.json()).keys ?? []);
     if (cr.ok) setConnectors((await cr.json()).connectors ?? []);
     if (sr.ok) {
       const j = await sr.json();
@@ -111,6 +120,41 @@ export default function SettingsClient() {
     const res = await fetch(`/api/agent/keys/${id}/test`, { method: "POST" });
     const j = await res.json();
     setMsg(j.ok ? "✅ Key works" : "❌ " + (j.error || "Failed"));
+    load();
+  }
+
+  async function addGKey(e: React.FormEvent) {
+    e.preventDefault();
+    setGBusy(true);
+    setGMsg("");
+    const res = await fetch("/api/agent/gemini-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: gLabel, key: gKeyValue }),
+    });
+    const j = await res.json();
+    setGBusy(false);
+    if (!res.ok) {
+      setGMsg("❌ " + (j.error || "Failed"));
+      return;
+    }
+    setGLabel("");
+    setGKeyValue("");
+    setGMsg("✅ Key added and verified");
+    load();
+  }
+
+  async function deleteGKey(id: string) {
+    if (!confirm("Delete this key?")) return;
+    await fetch(`/api/agent/gemini-keys/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function testGKey(id: string) {
+    setGMsg("Testing…");
+    const res = await fetch(`/api/agent/gemini-keys/${id}/test`, { method: "POST" });
+    const j = await res.json();
+    setGMsg(j.ok ? "✅ Key works" : "❌ " + (j.error || "Failed"));
     load();
   }
 
@@ -271,6 +315,63 @@ export default function SettingsClient() {
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
           >
             {busy ? "Verifying…" : "Add key"}
+          </button>
+        </form>
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+        <h2 className="mb-3 text-lg font-semibold">Gemini API keys</h2>
+        <p className="mb-4 text-sm text-zinc-400">
+          Free keys from{" "}
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline">
+            aistudio.google.com/apikey
+          </a>
+          . Same vault, same rotation — chat automatically falls back to Gemini when
+          Groq keys are rate-limited, and vice versa.
+        </p>
+        {gMsg && <p className="mb-4 text-sm">{gMsg}</p>}
+        <div className="mb-4 space-y-2">
+          {gKeys.length === 0 && <p className="text-sm text-zinc-500">No keys yet — add your first below.</p>}
+          {gKeys.map((k) => (
+            <div key={k.id} className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
+              <div>
+                <p className="text-sm font-medium">{k.label}</p>
+                <p className="text-xs text-zinc-500">
+                  {k.disabled ? "⛔ disabled" : k.cooldown_until && new Date(k.cooldown_until) > new Date() ? "⏳ cooling down" : "✅ active"}
+                  {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ""}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => testGKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700">
+                  Test
+                </button>
+                <button onClick={() => deleteGKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={addGKey} className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={gLabel}
+            onChange={(e) => setGLabel(e.target.value)}
+            placeholder="Label (e.g. gemini-1)"
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+          />
+          <input
+            value={gKeyValue}
+            onChange={(e) => setGKeyValue(e.target.value)}
+            placeholder="AIza…"
+            type="password"
+            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+          />
+          <button
+            type="submit"
+            disabled={gBusy || !gLabel.trim() || !gKeyValue.trim()}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {gBusy ? "Verifying…" : "Add key"}
           </button>
         </form>
       </section>

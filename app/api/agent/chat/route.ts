@@ -1,6 +1,7 @@
 import { streamText, convertToModelMessages, stepCountIs, tool } from "ai";
 import { NextResponse } from "next/server";
 import { createGroq } from "@ai-sdk/groq";
+import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { z } from "zod";
 import { requireSession } from "@/lib/agent/auth";
 import { getServiceClient } from "@/lib/agent/supabase";
@@ -11,6 +12,7 @@ import {
   cooldownKey,
   disableKey,
   getSetting,
+  type KeyProvider,
 } from "@/lib/agent/keys";
 import { listConnectors, callConnector } from "@/lib/agent/connectors";
 
@@ -100,16 +102,23 @@ export async function POST(req: Request) {
     /* connectors unavailable — chat still works */
   }
 
-  const candidates = await listCandidateKeys();
-  if (candidates.length === 0) {
-    return NextResponse.json({ error: "No active Groq keys. Add one in Settings." }, { status: 503 });
-  }
+  const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
+  const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
+  const primary: KeyProvider = modelId.startsWith("gemini-") ? "gemini" : "groq";
+  // Try the selected provider first, then automatically fall back to the other.
+  const providers: KeyProvider[] = primary === "groq" ? ["groq", "gemini"] : ["gemini", "groq"];
 
   let lastError: unknown = null;
 
-  for (const keyRow of candidates) {
-    const apiKey = decryptRowKey(keyRow);
-    const groq = createGroq({ apiKey });
+  for (const provider of providers) {
+    const mid =
+      provider === primary ? modelId : provider === "groq" ? GROQ_DEFAULT_MODEL : GEMINI_DEFAULT_MODEL;
+    const candidates = await listCandidateKeys(provider);
+    if (candidates.length === 0) continue;
+
+    for (const keyRow of candidates) {
+      const apiKey = decryptRowKey(keyRow);
+      const ai = provider === "groq" ? createGroq({ apiKey }) : createGoogleGenerativeAI({ apiKey });
 
     const tools: Record<string, any> = {
       get_current_time: tool({
@@ -137,32 +146,37 @@ export async function POST(req: Request) {
         },
       }),
     };
-    // Groq's free browser-search tool (gpt-oss models). Guarded: if the
-    // provider build doesn't expose it, the agent simply has no web search.
+    // Web search per provider: Groq browser search / Google search grounding.
+    // Guarded: if the provider build doesn't expose it, chat simply has no web search.
     try {
-      const maybeSearch = (groq as any)?.tools?.browserSearch;
-      if (typeof maybeSearch === "function") tools.web_search = maybeSearch({});
+      if (provider === "groq") {
+        const maybeSearch = (ai as any)?.tools?.browserSearch;
+        if (typeof maybeSearch === "function") tools.web_search = maybeSearch({});
+      } else {
+        const maybeSearch = (google as any)?.tools?.googleSearch;
+        if (typeof maybeSearch === "function") tools.web_search = maybeSearch({});
+      }
     } catch {
       /* web search unavailable */
     }
 
     try {
       const result = streamText({
-        model: groq(modelId),
+        model: ai(mid),
         system: systemPrompt,
         messages: modelMessages,
         tools,
         stopWhen: stepCountIs(6),
         onFinish: async ({ text }) => {
-          await markKeyUsed(keyRow.id);
+          await markKeyUsed(keyRow.id, provider);
           if (conversationId) await persistTurn(conversationId, messages, text);
         },
         onError: async ({ error }) => {
           // Mark the key's state for the NEXT request (can't swap mid-stream).
           const { status, retryAfter } = errorInfo(error);
           try {
-            if (status === 429) await cooldownKey(keyRow.id, retryAfter ?? 60);
-            else if (status === 401) await disableKey(keyRow.id);
+            if (status === 429) await cooldownKey(keyRow.id, retryAfter ?? 60, provider);
+            else if (status === 401) await disableKey(keyRow.id, provider);
           } catch {}
         },
       });
@@ -172,17 +186,18 @@ export async function POST(req: Request) {
       lastError = err;
       const { status, retryAfter } = errorInfo(err);
       if (status === 429) {
-        await cooldownKey(keyRow.id, retryAfter ?? 60);
+        await cooldownKey(keyRow.id, retryAfter ?? 60, provider);
         continue;
       }
       if (status === 401) {
-        await disableKey(keyRow.id);
+        await disableKey(keyRow.id, provider);
         continue;
       }
       break;
     }
+    }
   }
 
-  console.error("All Groq keys failed", lastError);
-  return NextResponse.json({ error: "All Groq keys failed. Check Settings → Keys." }, { status: 502 });
+  console.error("All Groq and Gemini keys failed", lastError);
+  return NextResponse.json({ error: "All Groq and Gemini keys failed. Check Settings → Keys." }, { status: 502 });
 }

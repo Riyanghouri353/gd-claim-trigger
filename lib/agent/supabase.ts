@@ -33,6 +33,28 @@ export type Database = {
         };
         Relationships: [];
       };
+      gemini_keys: {
+        Row: GroqKeyRow;
+        Insert: {
+          label: string;
+          enc_key: string;
+          iv: string;
+          tag: string;
+          disabled?: boolean;
+          cooldown_until?: string | null;
+          last_used_at?: string | null;
+        };
+        Update: {
+          label?: string;
+          enc_key?: string;
+          iv?: string;
+          tag?: string;
+          disabled?: boolean;
+          cooldown_until?: string | null;
+          last_used_at?: string | null;
+        };
+        Relationships: [];
+      };
       connectors: {
         Row: {
           id: string;

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/agent/supabase";
 import { decryptSecret } from "@/lib/agent/crypto";
+import { testGeminiKey } from "@/lib/agent/keys";
 
 /**
- * Nightly key health check (Vercel Cron, see vercel.json).
- * Pings every stored key against Groq; disables 401s, clears stale cooldowns.
+ * Nightly key health check.
+ * Pings every stored Groq + Gemini key; disables dead keys, clears stale cooldowns.
  */
 export async function GET(req: Request) {
   const auth = req.headers.get("authorization");
@@ -13,15 +14,15 @@ export async function GET(req: Request) {
   }
 
   const sb = getServiceClient();
-  const { data: keys } = await sb.from("groq_keys").select("*");
-  const report: { label: string; ok: boolean; note: string }[] = [];
+  const report: { provider: string; label: string; ok: boolean; note: string }[] = [];
 
-  for (const k of keys ?? []) {
+  const { data: groqKeys } = await sb.from("groq_keys").select("*");
+  for (const k of groqKeys ?? []) {
     let apiKey: string;
     try {
       apiKey = decryptSecret({ enc: k.enc_key, iv: k.iv, tag: k.tag });
     } catch {
-      report.push({ label: k.label, ok: false, note: "decrypt failed" });
+      report.push({ provider: "groq", label: k.label, ok: false, note: "decrypt failed" });
       continue;
     }
     try {
@@ -30,15 +31,38 @@ export async function GET(req: Request) {
       });
       if (res.status === 401) {
         await sb.from("groq_keys").update({ disabled: true }).eq("id", k.id);
-        report.push({ label: k.label, ok: false, note: "401 — disabled" });
+        report.push({ provider: "groq", label: k.label, ok: false, note: "401 — disabled" });
       } else if (!res.ok) {
-        report.push({ label: k.label, ok: false, note: `Groq ${res.status}` });
+        report.push({ provider: "groq", label: k.label, ok: false, note: `Groq ${res.status}` });
       } else {
         await sb.from("groq_keys").update({ disabled: false, cooldown_until: null }).eq("id", k.id);
-        report.push({ label: k.label, ok: true, note: "healthy" });
+        report.push({ provider: "groq", label: k.label, ok: true, note: "healthy" });
       }
     } catch {
-      report.push({ label: k.label, ok: false, note: "network error" });
+      report.push({ provider: "groq", label: k.label, ok: false, note: "network error" });
+    }
+  }
+
+  const { data: geminiKeys } = await sb.from("gemini_keys").select("*");
+  for (const k of geminiKeys ?? []) {
+    let apiKey: string;
+    try {
+      apiKey = decryptSecret({ enc: k.enc_key, iv: k.iv, tag: k.tag });
+    } catch {
+      report.push({ provider: "gemini", label: k.label, ok: false, note: "decrypt failed" });
+      continue;
+    }
+    const check = await testGeminiKey(apiKey);
+    if (!check.ok) {
+      if (check.error === "Invalid key") {
+        await sb.from("gemini_keys").update({ disabled: true }).eq("id", k.id);
+        report.push({ provider: "gemini", label: k.label, ok: false, note: "invalid — disabled" });
+      } else {
+        report.push({ provider: "gemini", label: k.label, ok: false, note: check.error || "failed" });
+      }
+    } else {
+      await sb.from("gemini_keys").update({ disabled: false, cooldown_until: null }).eq("id", k.id);
+      report.push({ provider: "gemini", label: k.label, ok: true, note: "healthy" });
     }
   }
 
