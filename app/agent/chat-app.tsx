@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Conversation {
   id: string;
@@ -16,6 +18,16 @@ function toolLabel(part: any): string {
     return part.type.replace("tool-", "");
   return "tool";
 }
+
+/** Markdown rendering for assistant messages: tables scroll on mobile, links open in a new tab. */
+const mdComponents = {
+  a: (props: any) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  table: (props: any) => (
+    <div className="overflow-x-auto">
+      <table {...props} />
+    </div>
+  ),
+};
 
 export default function ChatApp() {
   const router = useRouter();
@@ -209,10 +221,16 @@ export default function ChatApp() {
                 >
                   {m.parts.map((part: any, i: number) => {
                     if (part.type === "text") {
-                      return (
+                      return m.role === "user" ? (
                         <p key={i} className="whitespace-pre-wrap break-words">
                           {part.text}
                         </p>
+                      ) : (
+                        <div key={i} className="agent-md break-words">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                            {part.text}
+                          </ReactMarkdown>
+                        </div>
                       );
                     }
                     if (typeof part.type === "string" && part.type.includes("tool")) {
