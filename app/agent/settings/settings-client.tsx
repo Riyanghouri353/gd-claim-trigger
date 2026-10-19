@@ -56,6 +56,9 @@ export default function SettingsClient() {
   const [cTestPath, setCTestPath] = useState("");
   const [cBusy, setCBusy] = useState(false);
   const [cMsg, setCMsg] = useState("");
+  const [dService, setDService] = useState("");
+  const [dBusy, setDBusy] = useState(false);
+  const [dNote, setDNote] = useState("");
 
   async function load() {
     const [kr, sr, cr] = await Promise.all([
@@ -161,6 +164,39 @@ export default function SettingsClient() {
     load();
   }
 
+  async function discoverService(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dService.trim() || dBusy) return;
+    setDBusy(true);
+    setDNote("");
+    try {
+      const res = await fetch("/api/agent/connectors/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: dService.trim() }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setDNote("❌ " + (j.error || "Discovery failed"));
+        return;
+      }
+      if (j.baseUrl) setCBaseUrl(j.baseUrl);
+      setCAuthType(j.authType || "bearer");
+      setCAuthField(j.authField || "");
+      setCTestPath(j.testPath || "");
+      if (!cName.trim()) setCName(dService.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      const conf = j.confidence === "high" ? "✅" : j.confidence === "medium" ? "⚠️" : "❓";
+      setDNote(
+        `${conf} Details filled${j.confidence !== "high" ? " (low confidence — verify before saving)" : ""}` +
+        (j.keyHint ? ` · Key: ${j.keyHint}` : "")
+      );
+    } catch {
+      setDNote("❌ Discovery failed");
+    } finally {
+      setDBusy(false);
+    }
+  }
+
   async function toggleConnector(id: string, enabled: boolean) {
     await fetch(`/api/agent/connectors/${id}`, {
       method: "PATCH",
@@ -248,6 +284,22 @@ export default function SettingsClient() {
           so they never land in chat history.
         </p>
         {cMsg && <p className="mb-4 text-sm text-[var(--ag-text)]">{cMsg}</p>}
+        <form onSubmit={discoverService} className="mb-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={dService}
+            onChange={(e) => setDService(e.target.value)}
+            placeholder="Service name — e.g. Resend, Cloudflare, GitHub"
+            className="flex-1 rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+          />
+          <button
+            type="submit"
+            disabled={dBusy || !dService.trim()}
+            className="shrink-0 rounded-lg bg-[var(--ag-surface-2)] px-4 py-2 text-sm font-medium text-[var(--ag-text)] hover:bg-[var(--ag-active)] disabled:opacity-50"
+          >
+            {dBusy ? "Looking up…" : "✨ Auto-fill details"}
+          </button>
+        </form>
+        {dNote && <p className="mb-3 text-xs text-[var(--ag-muted)]">{dNote}</p>}
         <div className="mb-4 space-y-2">
           {connectors.length === 0 && (
             <p className="text-sm text-[var(--ag-faint)]">No connectors yet — add your first below.</p>
