@@ -6,7 +6,6 @@ import Overview from './sections/Overview';
 import Vault from './sections/Vault';
 import FeeGuard from './sections/FeeGuard';
 import Logs from './sections/Logs';
-import Collect from './sections/Collect';
 
 /* ------------------------------------------------------------------ */
 /* Nav icons (inline SVG, stroke = currentColor)                        */
@@ -24,7 +23,6 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: <Icon d="M4 4h7v7H4zM13 4h7v4h-7zM13 11h7v9h-7zM4 14h7v6H4z" /> },
   { id: 'vault', label: 'Vault', icon: <Icon d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z M9.5 12l2 2 3.5-4" /> },
   { id: 'fees', label: 'Fee Guard', icon: <Icon d="M5 19a9 9 0 1 1 14 0 M12 15l4-5 M12 15h.01" /> },
-  { id: 'collect', label: 'Collection', icon: <Icon d="M12 3v12m0 0l-4-4m4 4l4-4 M4 17v3h16v-3" /> },
   { id: 'logs', label: 'Logs', icon: <Icon d="M8 6h13M8 12h13M8 18h13 M3.5 6h.01M3.5 12h.01M3.5 18h.01" /> },
 ] as const;
 
@@ -257,7 +255,6 @@ export default function AppShell() {
           {tab === 'fees' && (
             <FeeGuard status={status} fBusy={fBusy} fMsg={fMsg} onCheckFees={checkFeesNow} />
           )}
-          {tab === 'collect' && <Collect status={status} />}
           {tab === 'logs' && <Logs status={status} />}
         </main>
       </div>

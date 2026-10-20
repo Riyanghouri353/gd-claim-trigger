@@ -62,21 +62,6 @@ and `eth_call(balanceOf)` against public RPCs with per-chain fallbacks
 All wallets × chains are fetched in parallel; one slow RPC can't block the rest.
 A "Refresh balances" button re-fetches on demand.
 
-## Collection (G$ sweep)
-
-Every 3 days (after the 22:00 UTC run, when enabled) or manually via the Collection
-tab / `POST /api/collect`: `lib/collect.ts` sweeps G$ from all wallets on the
-enabled chains (Celo + XDC) into a freshly generated collection wallet, then forwards
-everything to the main wallet (Riyan353). Flow per chain: sweep each wallet's G$ →
-collection (dry Celo wallets via GoodDollar faucet, dry XDC wallets funded by main;
-faucet is CELO-only, verified) → main funds collection gas (est × 1.5) → collection
-forwards all G$ → main → leftover native → main. Collection keys are encrypted and
-saved to `collection_wallets` BEFORE any transfer and never deleted; per-chain detail
-in `collection_legs`; settings in `collection_settings`. Server-side signing with
-ethers; sequential sends per address (nonce safety), parallel across wallets/chains.
-Auto-collect is gated by `collection_auto` (default off until live-tested). Failures
-trigger email alerts via `alertCollectionFinished`.
-
 ## Security model
 
 - Keys are AES-256-GCM ciphertext in Supabase; decryption needs `PROJECT_KEY` (Render env only) and happens in server memory at run time.
