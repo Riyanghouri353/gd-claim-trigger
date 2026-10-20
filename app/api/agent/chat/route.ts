@@ -51,10 +51,17 @@ const lovableFetch = async (url: any, init: any): Promise<Response> => {
 
 /** Human-readable error message sent to the chat client on stream failure. */
 function streamErrorMessage(error: unknown): string {
+  const e = error as any;
   const { status } = errorInfo(error);
   if (status === 429) return "Rate limit hit on all providers — wait a few seconds and hit Retry.";
   if (status === 401 || status === 403)
     return "API key rejected by the provider. Check Settings → Keys.";
+  // Gateway error bodies (OpenAI-style or flat) carry a readable message.
+  try {
+    const body = typeof e?.responseBody === "string" ? JSON.parse(e.responseBody) : null;
+    const m = body?.message || body?.title || body?.error?.message;
+    if (m) return `Provider error: ${String(m).slice(0, 220)}`;
+  } catch { /* fall through */ }
   const msg = error instanceof Error ? error.message : String(error ?? "");
   if (/network|fetch failed|econn|etimedout|enotfound|socket/i.test(msg))
     return "Network error reaching the AI provider. Check your connection and hit Retry.";
@@ -211,7 +218,9 @@ export async function POST(req: Request) {
 
     try {
       const result = streamText({
-        model: ai(mid),
+        // Lovable gateway: Gemini models only work on /v1/chat/completions,
+        // so force the chat model (the SDK default is the Responses API).
+        model: provider === "lovable" ? (ai as any).chat(mid) : ai(mid),
         system: systemPrompt,
         messages: modelMessages,
         tools,
