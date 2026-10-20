@@ -103,6 +103,18 @@ export type Database = {
         Update: { title?: string | null };
         Relationships: [];
       };
+      memories: {
+        Row: { id: string; content: string; created_at: string };
+        Insert: { content: string };
+        Update: { content?: string };
+        Relationships: [];
+      };
+      agent_files: {
+        Row: { id: string; name: string; mime: string; content: string; size: number; created_at: string };
+        Insert: { name: string; mime: string; content: string; size: number };
+        Update: { name?: string; mime?: string; content?: string; size?: number };
+        Relationships: [];
+      };
       messages: {
         Row: {
           id: string;

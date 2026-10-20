@@ -117,7 +117,7 @@ function isBlockedIp(ip: string): boolean {
 }
 
 /** SSRF guard: only public http(s) hosts, no private/loopback/link-local IPs. */
-async function assertPublicUrl(url: URL) {
+export async function assertPublicUrl(url: URL) {
   if (url.protocol !== "http:" && url.protocol !== "https:")
     throw new Error("Only http/https URLs are allowed");
   if (url.username || url.password) throw new Error("Credentials in URL are not allowed");
@@ -131,7 +131,7 @@ async function assertPublicUrl(url: URL) {
     throw new Error("Private/internal hosts are blocked");
 }
 
-async function fetchWithTimeout(url: URL, init: RequestInit, ms = 30000) {
+export async function fetchWithTimeout(url: URL, init: RequestInit, ms = 30000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {

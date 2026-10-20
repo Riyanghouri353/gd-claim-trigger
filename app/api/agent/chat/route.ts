@@ -16,6 +16,10 @@ import {
   type KeyProvider,
 } from "@/lib/agent/keys";
 import { listConnectors, callConnector } from "@/lib/agent/connectors";
+import { listMemories, addMemory } from "@/lib/agent/memory";
+import { fetchPublicText } from "@/lib/agent/web";
+import { createAgentFile } from "@/lib/agent/files";
+import { getE2BKey, runCode } from "@/lib/agent/e2b";
 
 export const maxDuration = 60;
 
@@ -134,6 +138,21 @@ export async function POST(req: Request) {
     /* connectors unavailable — chat still works */
   }
 
+  // Long-term memory: inject what the agent remembers about the user.
+  try {
+    const mems = await listMemories(40);
+    if (mems.length > 0) {
+      systemPrompt +=
+        "\n\nThings you remember about the user from past conversations:\n" +
+        mems.map((m) => `- ${m.content}`).join("\n") +
+        "\nUse these naturally when relevant; don't recite them unbidden.";
+    }
+  } catch {
+    /* memory unavailable — chat still works */
+  }
+
+  const e2bKey = await getE2BKey().catch(() => null);
+
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
     gemini: "gemini-2.5-flash",
@@ -201,6 +220,68 @@ export async function POST(req: Request) {
           }
         },
       }),
+      remember: tool({
+        description:
+          "Save a durable fact about the user (name, preferences, projects, people, decisions) to long-term memory so you remember it in future conversations. Use whenever the user shares something worth remembering. Never save passwords or API keys.",
+        inputSchema: z.object({
+          fact: z.string().describe("The fact to remember, one clear sentence"),
+        }),
+        execute: async ({ fact }) => {
+          const stored = await addMemory(fact);
+          return { ok: true, stored, note: stored ? "Saved to long-term memory." : "Already remembered." };
+        },
+      }),
+      read_url: tool({
+        description:
+          "Fetch a public web page or URL and read its text content. Use when the user shares a link or asks what a page says.",
+        inputSchema: z.object({
+          url: z.string().describe("Full http(s) URL"),
+        }),
+        execute: async ({ url }) => {
+          try {
+            const r = await fetchPublicText(url);
+            return { ok: r.ok, status: r.status, text: r.text, truncated: r.truncated };
+          } catch (e: any) {
+            return { ok: false, status: 0, text: `Read failed: ${e?.message || e}`, truncated: false };
+          }
+        },
+      }),
+      create_file: tool({
+        description:
+          "Create a downloadable text file (markdown, csv, json, html, txt, code) for the user. Returns a download path — include it in your reply as a markdown link like [Download name](path).",
+        inputSchema: z.object({
+          name: z.string().describe("File name with extension, e.g. report.md"),
+          content: z.string().describe("Full file content"),
+        }),
+        execute: async ({ name, content }) => {
+          try {
+            const f = await createAgentFile(name, content);
+            return { ok: true, name, download: f.path };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not create file" };
+          }
+        },
+      }),
+      ...(e2bKey
+        ? {
+            run_code: tool({
+              description:
+                "Run Python or JavaScript in a secure E2B cloud sandbox (never on the server). Use for calculations, data processing, chart data, or testing snippets. Returns stdout, stderr, results and errors.",
+              inputSchema: z.object({
+                language: z.enum(["python", "javascript"]).default("python"),
+                code: z.string().describe("The code to execute"),
+              }),
+              execute: async ({ code, language }) => {
+                try {
+                  const r = await runCode(e2bKey, code, language);
+                  return { ok: !r.error, stdout: r.stdout, stderr: r.stderr, results: r.results, error: r.error };
+                } catch (e: any) {
+                  return { ok: false, error: `Sandbox error: ${e?.message || e}` };
+                }
+              },
+            }),
+          }
+        : {}),
     };
     // Web search per provider: Groq browser search / Google search grounding.
     // Guarded: if the provider build doesn't expose it, chat simply has no web search.
@@ -224,7 +305,7 @@ export async function POST(req: Request) {
         system: systemPrompt,
         messages: modelMessages,
         tools,
-        stopWhen: stepCountIs(8),
+        stopWhen: stepCountIs(10),
         onFinish: async ({ text }) => {
           await markKeyUsed(keyRow.id, provider);
           if (conversationId) await persistTurn(conversationId, messages, text);
