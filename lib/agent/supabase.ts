@@ -115,6 +115,18 @@ export type Database = {
         Update: { name?: string; mime?: string; content?: string; size?: number; storage_path?: string | null; conversation_id?: string | null };
         Relationships: [];
       };
+      sites: {
+        Row: { id: string; name: string; slug: string; vercel_project_id: string | null; preview_url: string | null; live_url: string | null; status: string; created_at: string; updated_at: string };
+        Insert: { name: string; slug: string; vercel_project_id?: string | null; preview_url?: string | null; live_url?: string | null; status?: string };
+        Update: { name?: string; slug?: string; vercel_project_id?: string | null; preview_url?: string | null; live_url?: string | null; status?: string; updated_at?: string };
+        Relationships: [];
+      };
+      site_files: {
+        Row: { id: string; site_id: string; path: string; content: string; updated_at: string };
+        Insert: { site_id: string; path: string; content: string; updated_at?: string };
+        Update: { content?: string; updated_at?: string };
+        Relationships: [];
+      };
       messages: {
         Row: {
           id: string;
