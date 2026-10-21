@@ -2,7 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import styles from "../agent-theme.module.css";
+import {
+  ArrowLeft,
+  Brain,
+  CheckCircle2,
+  Code2,
+  KeyRound,
+  Loader2,
+  Plug,
+  Sparkles,
+  Trash2,
+  XCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface KeyRow {
   id: string;
@@ -39,6 +71,35 @@ const MODELS = [
   "llama-3.3-70b-versatile",
   "qwen/qwen3-32b",
 ];
+
+const selectClass =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
+
+function Msg({ text }: { text: string }) {
+  if (!text) return null;
+  const bad = text.startsWith("❌");
+  const good = text.startsWith("✅");
+  return (
+    <p className={`flex items-center gap-1.5 text-sm ${bad ? "text-destructive" : good ? "text-emerald-400" : "text-muted-foreground"}`}>
+      {bad ? <XCircle className="size-4 shrink-0" /> : good ? <CheckCircle2 className="size-4 shrink-0" /> : null}
+      {text.replace(/^[❌✅]\s*/, "")}
+    </p>
+  );
+}
+
+function KeyStatus({ k }: { k: KeyRow }) {
+  if (k.disabled) return <Badge variant="destructive">Disabled</Badge>;
+  if (k.cooldown_until && new Date(k.cooldown_until) > new Date())
+    return <Badge variant="secondary">Cooling down</Badge>;
+  return <Badge variant="success">Active</Badge>;
+}
+
+interface ConfirmState {
+  title: string;
+  description: string;
+  actionLabel: string;
+  run: () => void;
+}
 
 export default function SettingsClient() {
   const router = useRouter();
@@ -79,6 +140,7 @@ export default function SettingsClient() {
   const [dService, setDService] = useState("");
   const [dBusy, setDBusy] = useState(false);
   const [dNote, setDNote] = useState("");
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   async function load() {
     const [kr, gkr, lkr, sr, cr, mr, er] = await Promise.all([
@@ -107,6 +169,10 @@ export default function SettingsClient() {
     load();
   }, []);
 
+  function confirm(cs: ConfirmState) {
+    setConfirmState(cs);
+  }
+
   async function addKey(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -129,7 +195,6 @@ export default function SettingsClient() {
   }
 
   async function deleteKey(id: string) {
-    if (!confirm("Delete this key?")) return;
     await fetch(`/api/agent/keys/${id}`, { method: "DELETE" });
     load();
   }
@@ -164,7 +229,6 @@ export default function SettingsClient() {
   }
 
   async function deleteGKey(id: string) {
-    if (!confirm("Delete this key?")) return;
     await fetch(`/api/agent/gemini-keys/${id}`, { method: "DELETE" });
     load();
   }
@@ -199,7 +263,6 @@ export default function SettingsClient() {
   }
 
   async function deleteLKey(id: string) {
-    if (!confirm("Delete this key?")) return;
     await fetch(`/api/agent/lovable-keys/${id}`, { method: "DELETE" });
     load();
   }
@@ -255,7 +318,6 @@ export default function SettingsClient() {
   }
 
   async function removeE2BKey() {
-    if (!confirm("Remove the E2B key? Code execution will turn off.")) return;
     await fetch("/api/agent/e2b-key", { method: "DELETE" });
     setE2bMsg("E2B key removed");
     load();
@@ -306,7 +368,6 @@ export default function SettingsClient() {
   }
 
   async function deleteConnector(id: string) {
-    if (!confirm("Delete this connector?")) return;
     await fetch(`/api/agent/connectors/${id}`, { method: "DELETE" });
     load();
   }
@@ -358,413 +419,474 @@ export default function SettingsClient() {
     cAuthType === "query" ? "Query param name (e.g. api_key)" :
     cAuthType === "basic" ? "Username" : "";
 
+  function keySection(p: {
+    icon: React.ReactNode;
+    title: string;
+    description: React.ReactNode;
+    rows: KeyRow[];
+    msgText: string;
+    labelVal: string;
+    setLabelVal: (v: string) => void;
+    keyVal: string;
+    setKeyVal: (v: string) => void;
+    keyPlaceholder: string;
+    busyFlag: boolean;
+    onAdd: (e: React.FormEvent) => void;
+    onTest: (id: string) => void;
+    onDelete: (id: string) => void;
+  }) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{p.icon}</span>
+            {p.title}
+          </CardTitle>
+          <CardDescription>{p.description}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={p.msgText} />
+          <div className="space-y-2">
+            {p.rows.length === 0 && (
+              <p className="text-sm text-muted-foreground">No keys yet — add your first below.</p>
+            )}
+            {p.rows.map((k) => (
+              <div key={k.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-sm font-medium">
+                    <span className="truncate">{k.label}</span>
+                    <KeyStatus k={k} />
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {k.last_used_at ? `Last used ${new Date(k.last_used_at).toLocaleString()}` : "Never used"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="outline" size="sm" onClick={() => p.onTest(k.id)}>
+                    Test
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() =>
+                      confirm({
+                        title: "Delete this key?",
+                        description: `The key “${k.label}” will be removed from the vault.`,
+                        actionLabel: "Delete",
+                        run: () => p.onDelete(k.id),
+                      })
+                    }
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={p.onAdd} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={p.labelVal}
+              onChange={(e) => p.setLabelVal(e.target.value)}
+              placeholder="Label (e.g. account-1)"
+              className="sm:w-44"
+            />
+            <Input
+              value={p.keyVal}
+              onChange={(e) => p.setKeyVal(e.target.value)}
+              placeholder={p.keyPlaceholder}
+              type="password"
+              className="flex-1"
+            />
+            <Button type="submit" disabled={p.busyFlag || !p.labelVal.trim() || !p.keyVal.trim()}>
+              {p.busyFlag && <Loader2 className="animate-spin" />}
+              {p.busyFlag ? "Verifying…" : "Add key"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <div className={`${styles.theme} min-h-screen bg-[var(--ag-bg)]`}>
-    <main className="mx-auto max-w-3xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <button onClick={() => router.push("/agent")} className="text-sm text-indigo-400 hover:underline">
-          ← Back to chat
-        </button>
+    <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <Button variant="ghost" onClick={() => router.push("/agent")}>
+          <ArrowLeft />
+          Back to chat
+        </Button>
       </div>
 
-      {msg && <p className="mb-4 text-sm">{msg}</p>}
+      {keySection({
+        icon: <KeyRound className="size-4" />,
+        title: "Groq API keys",
+        description:
+          "Keys are AES-256 encrypted in Supabase and tested before saving. Requests rotate across healthy keys; rate-limited keys cool down automatically.",
+        rows: keys,
+        msgText: msg,
+        labelVal: label,
+        setLabelVal: setLabel,
+        keyVal: keyValue,
+        setKeyVal: setKeyValue,
+        keyPlaceholder: "gsk_…",
+        busyFlag: busy,
+        onAdd: addKey,
+        onTest: testKey,
+        onDelete: deleteKey,
+      })}
 
-      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Groq API keys</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Keys are AES-256 encrypted in Supabase and tested before saving. Requests rotate
-          across healthy keys; rate-limited keys cool down automatically.
-        </p>
-        <div className="mb-4 space-y-2">
-          {keys.length === 0 && <p className="text-sm text-zinc-500">No keys yet — add your first below.</p>}
-          {keys.map((k) => (
-            <div key={k.id} className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium">{k.label}</p>
-                <p className="text-xs text-zinc-500">
-                  {k.disabled ? "⛔ disabled" : k.cooldown_until && new Date(k.cooldown_until) > new Date() ? "⏳ cooling down" : "✅ active"}
-                  {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ""}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => testKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700">
-                  Test
-                </button>
-                <button onClick={() => deleteKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={addKey} className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Label (e.g. account-1)"
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <input
-            value={keyValue}
-            onChange={(e) => setKeyValue(e.target.value)}
-            placeholder="gsk_…"
-            type="password"
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <button
-            type="submit"
-            disabled={busy || !label.trim() || !keyValue.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {busy ? "Verifying…" : "Add key"}
-          </button>
-        </form>
-      </section>
+      {keySection({
+        icon: <Sparkles className="size-4" />,
+        title: "Gemini API keys",
+        description: (
+          <>
+            Free keys from{" "}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline">
+              aistudio.google.com/apikey
+            </a>
+            . Same vault, same rotation — chat automatically falls back across Groq, Gemini
+            and Lovable when a provider's keys are rate-limited.
+          </>
+        ),
+        rows: gKeys,
+        msgText: gMsg,
+        labelVal: gLabel,
+        setLabelVal: setGLabel,
+        keyVal: gKeyValue,
+        setKeyVal: setGKeyValue,
+        keyPlaceholder: "AIza…",
+        busyFlag: gBusy,
+        onAdd: addGKey,
+        onTest: testGKey,
+        onDelete: deleteGKey,
+      })}
 
-      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Gemini API keys</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Free keys from{" "}
-          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline">
-            aistudio.google.com/apikey
-          </a>
-          . Same vault, same rotation — chat automatically falls back across Groq,
-          Gemini and Lovable when a provider's keys are rate-limited.
-        </p>
-        {gMsg && <p className="mb-4 text-sm">{gMsg}</p>}
-        <div className="mb-4 space-y-2">
-          {gKeys.length === 0 && <p className="text-sm text-zinc-500">No keys yet — add your first below.</p>}
-          {gKeys.map((k) => (
-            <div key={k.id} className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium">{k.label}</p>
-                <p className="text-xs text-zinc-500">
-                  {k.disabled ? "⛔ disabled" : k.cooldown_until && new Date(k.cooldown_until) > new Date() ? "⏳ cooling down" : "✅ active"}
-                  {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ""}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => testGKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700">
-                  Test
-                </button>
-                <button onClick={() => deleteGKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={addGKey} className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={gLabel}
-            onChange={(e) => setGLabel(e.target.value)}
-            placeholder="Label (e.g. gemini-1)"
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <input
-            value={gKeyValue}
-            onChange={(e) => setGKeyValue(e.target.value)}
-            placeholder="AIza…"
-            type="password"
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <button
-            type="submit"
-            disabled={gBusy || !gLabel.trim() || !gKeyValue.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {gBusy ? "Verifying…" : "Add key"}
-          </button>
-        </form>
-      </section>
+      {keySection({
+        icon: <Sparkles className="size-4" />,
+        title: "Lovable AI Gateway keys",
+        description: (
+          <>
+            Keys for <span className="font-mono text-xs">ai.gateway.lovable.dev</span> — an
+            OpenAI-compatible gateway. Add as many as you like; chat rotates across them and
+            falls back here automatically when Groq and Gemini keys are exhausted.
+          </>
+        ),
+        rows: lKeys,
+        msgText: lMsg,
+        labelVal: lLabel,
+        setLabelVal: setLLabel,
+        keyVal: lKeyValue,
+        setKeyVal: setLKeyValue,
+        keyPlaceholder: "Lovable API key",
+        busyFlag: lBusy,
+        onAdd: addLKey,
+        onTest: testLKey,
+        onDelete: deleteLKey,
+      })}
 
-      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Lovable AI Gateway keys</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Keys for{" "}
-          <span className="font-mono text-xs">ai.gateway.lovable.dev</span> — OpenAI-compatible
-          gateway. Add as many as you like; chat rotates across them and falls back here
-          automatically when Groq and Gemini keys are exhausted.
-        </p>
-        {lMsg && <p className="mb-4 text-sm">{lMsg}</p>}
-        <div className="mb-4 space-y-2">
-          {lKeys.length === 0 && <p className="text-sm text-zinc-500">No keys yet — add your first below.</p>}
-          {lKeys.map((k) => (
-            <div key={k.id} className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium">{k.label}</p>
-                <p className="text-xs text-zinc-500">
-                  {k.disabled ? "⛔ disabled" : k.cooldown_until && new Date(k.cooldown_until) > new Date() ? "⏳ cooling down" : "✅ active"}
-                  {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ""}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => testLKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700">
-                  Test
-                </button>
-                <button onClick={() => deleteLKey(k.id)} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={addLKey} className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={lLabel}
-            onChange={(e) => setLLabel(e.target.value)}
-            placeholder="Label (e.g. lovable-1)"
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <input
-            value={lKeyValue}
-            onChange={(e) => setLKeyValue(e.target.value)}
-            placeholder="Lovable API key"
-            type="password"
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <button
-            type="submit"
-            disabled={lBusy || !lLabel.trim() || !lKeyValue.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {lBusy ? "Verifying…" : "Add key"}
-          </button>
-        </form>
-      </section>
-
-      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Memory</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Facts your agent remembers about you across all conversations. It saves them
-          automatically when you share something durable — review or delete them here.
-        </p>
-        {memMsg && <p className="mb-4 text-sm">{memMsg}</p>}
-        <div className="mb-4 space-y-2">
-          {memories.length === 0 && (
-            <p className="text-sm text-zinc-500">Nothing remembered yet — tell your agent something about yourself.</p>
-          )}
-          {memories.map((m) => (
-            <div key={m.id} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-900 px-4 py-2.5">
-              <p className="min-w-0 flex-1 text-sm">{m.content}</p>
-              <button
-                onClick={() => deleteMemoryUI(m.id)}
-                className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700"
-              >
-                Forget
-              </button>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={addMemoryManual} className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={newMemory}
-            onChange={(e) => setNewMemory(e.target.value)}
-            placeholder="Add a memory — e.g. My bakery is called Al Khair Trader"
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <button
-            type="submit"
-            disabled={!newMemory.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-          >
-            Remember
-          </button>
-        </form>
-      </section>
-
-      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Code execution (E2B)</h2>
-        <p className="mb-4 text-sm text-zinc-400">
-          Lets your agent run Python/JavaScript in a secure E2B cloud sandbox — never on
-          this server. Get a free key at{" "}
-          <a href="https://e2b.dev" target="_blank" rel="noreferrer" className="underline">
-            e2b.dev
-          </a>
-          . Stored AES-256 encrypted.
-        </p>
-        {e2bMsg && <p className="mb-4 text-sm">{e2bMsg}</p>}
-        {e2bConfigured ? (
-          <div className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
-            <p className="text-sm">✅ E2B key configured — code execution is on</p>
-            <button
-              onClick={removeE2BKey}
-              className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700"
-            >
-              Remove
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={saveE2BKey} className="flex flex-col gap-2 sm:flex-row">
-            <input
-              value={e2bKeyValue}
-              onChange={(e) => setE2bKeyValue(e.target.value)}
-              placeholder="e2b_…"
-              type="password"
-              className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-            />
-            <button
-              type="submit"
-              disabled={e2bBusy || !e2bKeyValue.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-            >
-              {e2bBusy ? "Verifying…" : "Save key"}
-            </button>
-          </form>
-        )}
-      </section>
-
-      <section className="mb-8 rounded-2xl border border-[var(--ag-border)] bg-[var(--ag-sidebar)] p-5">
-        <h2 className="mb-3 text-lg font-semibold text-[var(--ag-text)]">API connectors</h2>
-        <p className="mb-4 text-sm text-[var(--ag-muted)]">
-          Save API keys for services your agent can call from chat (email, domains,
-          anything with an HTTP API). Keys are AES-256 encrypted in Supabase, tested
-          before saving, and never sent to your browser. Add them here — not in chat,
-          so they never land in chat history.
-        </p>
-        {cMsg && <p className="mb-4 text-sm text-[var(--ag-text)]">{cMsg}</p>}
-        <form onSubmit={discoverService} className="mb-3 flex flex-col gap-2 sm:flex-row">
-          <input
-            value={dService}
-            onChange={(e) => setDService(e.target.value)}
-            placeholder="Service name — e.g. Resend, Cloudflare, GitHub"
-            className="flex-1 rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-          />
-          <button
-            type="submit"
-            disabled={dBusy || !dService.trim()}
-            className="shrink-0 rounded-lg bg-[var(--ag-surface-2)] px-4 py-2 text-sm font-medium text-[var(--ag-text)] hover:bg-[var(--ag-active)] disabled:opacity-50"
-          >
-            {dBusy ? "Looking up…" : "✨ Auto-fill details"}
-          </button>
-        </form>
-        {dNote && <p className="mb-3 text-xs text-[var(--ag-muted)]">{dNote}</p>}
-        <div className="mb-4 space-y-2">
-          {connectors.length === 0 && (
-            <p className="text-sm text-[var(--ag-faint)]">No connectors yet — add your first below.</p>
-          )}
-          {connectors.map((c) => (
-            <div
-              key={c.id}
-              className="flex items-center justify-between rounded-xl bg-[var(--ag-surface)] px-4 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-[var(--ag-text)]">{c.name}</p>
-                <p className="truncate text-xs text-[var(--ag-faint)]">
-                  {c.enabled ? "✅ enabled" : "⏸ disabled"} · {c.authType} · {c.baseUrl}
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  onClick={() => toggleConnector(c.id, !c.enabled)}
-                  className="rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-xs text-[var(--ag-text)] hover:bg-[var(--ag-active)]"
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Brain className="size-4" />
+            </span>
+            Memory
+          </CardTitle>
+          <CardDescription>
+            Facts your agent remembers about you across all conversations. It saves them
+            automatically when you share something durable — review or delete them here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={memMsg} />
+          <div className="space-y-2">
+            {memories.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nothing remembered yet — tell your agent something about yourself.
+              </p>
+            )}
+            {memories.map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+                <p className="min-w-0 flex-1 text-sm">{m.content}</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() =>
+                    confirm({
+                      title: "Forget this memory?",
+                      description: m.content,
+                      actionLabel: "Forget",
+                      run: () => deleteMemoryUI(m.id),
+                    })
+                  }
                 >
-                  {c.enabled ? "Disable" : "Enable"}
-                </button>
-                <button
-                  onClick={() => deleteConnector(c.id)}
-                  className="rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-xs text-[var(--ag-danger)] hover:bg-[var(--ag-active)]"
-                >
-                  Delete
-                </button>
+                  Forget
+                </Button>
               </div>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={addConnector} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <input
-            value={cName}
-            onChange={(e) => setCName(e.target.value)}
-            placeholder="Name (e.g. resend)"
-            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-          />
-          <input
-            value={cBaseUrl}
-            onChange={(e) => setCBaseUrl(e.target.value)}
-            placeholder="Base URL (https://api.example.com)"
-            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-          />
-          <select
-            value={cAuthType}
-            onChange={(e) => setCAuthType(e.target.value)}
-            className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none"
-          >
-            {AUTH_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
             ))}
-          </select>
-          {authFieldLabel ? (
-            <input
-              value={cAuthField}
-              onChange={(e) => setCAuthField(e.target.value)}
-              placeholder={authFieldLabel}
-              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
+          </div>
+          <form onSubmit={addMemoryManual} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={newMemory}
+              onChange={(e) => setNewMemory(e.target.value)}
+              placeholder="Add a memory — e.g. My bakery is called Al Khair Trader"
+              className="flex-1"
             />
-          ) : (
-            <input
-              value={cTestPath}
-              onChange={(e) => setCTestPath(e.target.value)}
-              placeholder="Test path (optional, e.g. /v1/models)"
-              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-            />
-          )}
-          {cAuthType !== "none" && (
-            <input
-              value={cKey}
-              onChange={(e) => setCKey(e.target.value)}
-              placeholder="API key / token"
-              type="password"
-              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-            />
-          )}
-          {authFieldLabel && (
-            <input
-              value={cTestPath}
-              onChange={(e) => setCTestPath(e.target.value)}
-              placeholder="Test path (optional)"
-              className="rounded-lg border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-2 text-sm text-[var(--ag-text)] outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-            />
-          )}
-          <button
-            type="submit"
-            disabled={cBusy || !cName.trim() || !cBaseUrl.trim() || (cAuthType !== "none" && !cKey.trim())}
-            className="rounded-lg bg-[var(--ag-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--ag-accent-hover)] disabled:opacity-50 sm:col-span-2"
-          >
-            {cBusy ? "Testing…" : "Save connector"}
-          </button>
-        </form>
-      </section>
+            <Button type="submit" disabled={!newMemory.trim()}>
+              Remember
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-        <h2 className="mb-3 text-lg font-semibold">Agent</h2>
-        <label className="mb-1 block text-sm text-zinc-400">Model</label>
-        <select
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none"
-        >
-          {MODELS.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-        <label className="mb-1 block text-sm text-zinc-400">System prompt</label>
-        <textarea
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-          rows={4}
-          placeholder="Leave empty for the default personality…"
-          className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-        />
-        <button
-          onClick={saveSettings}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500"
-        >
-          Save
-        </button>
-        {saved && <span className="ml-3 text-sm text-green-400">Saved ✓</span>}
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Code2 className="size-4" />
+            </span>
+            Code execution (E2B)
+          </CardTitle>
+          <CardDescription>
+            Lets your agent run Python/JavaScript in a secure E2B cloud sandbox — never on
+            this server. Get a free key at{" "}
+            <a href="https://e2b.dev" target="_blank" rel="noreferrer" className="underline">
+              e2b.dev
+            </a>
+            . Stored AES-256 encrypted.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={e2bMsg} />
+          {e2bConfigured ? (
+            <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-2.5">
+              <p className="flex items-center gap-2 text-sm">
+                <Badge variant="success">On</Badge>
+                E2B key configured — code execution is on
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() =>
+                  confirm({
+                    title: "Remove the E2B key?",
+                    description: "Code execution will turn off until a new key is added.",
+                    actionLabel: "Remove",
+                    run: removeE2BKey,
+                  })
+                }
+              >
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={saveE2BKey} className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={e2bKeyValue}
+                onChange={(e) => setE2bKeyValue(e.target.value)}
+                placeholder="e2b_…"
+                type="password"
+                className="flex-1"
+              />
+              <Button type="submit" disabled={e2bBusy || !e2bKeyValue.trim()}>
+                {e2bBusy && <Loader2 className="animate-spin" />}
+                {e2bBusy ? "Verifying…" : "Save key"}
+              </Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Plug className="size-4" />
+            </span>
+            API connectors
+          </CardTitle>
+          <CardDescription>
+            Save API keys for services your agent can call from chat (email, domains,
+            anything with an HTTP API). Keys are AES-256 encrypted in Supabase, tested
+            before saving, and never sent to your browser. Add them here — not in chat,
+            so they never land in chat history.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={cMsg} />
+          <form onSubmit={discoverService} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={dService}
+              onChange={(e) => setDService(e.target.value)}
+              placeholder="Service name — e.g. Resend, Cloudflare, GitHub"
+              className="flex-1"
+            />
+            <Button type="submit" variant="secondary" disabled={dBusy || !dService.trim()} className="shrink-0">
+              {dBusy ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {dBusy ? "Looking up…" : "Auto-fill details"}
+            </Button>
+          </form>
+          {dNote && <p className="text-xs text-muted-foreground">{dNote}</p>}
+          <div className="space-y-2">
+            {connectors.length === 0 && (
+              <p className="text-sm text-muted-foreground">No connectors yet — add your first below.</p>
+            )}
+            {connectors.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{c.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.authType} · {c.baseUrl}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Switch
+                    checked={c.enabled}
+                    onCheckedChange={(v) => toggleConnector(c.id, v)}
+                    aria-label={`Toggle ${c.name}`}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() =>
+                      confirm({
+                        title: "Delete this connector?",
+                        description: `The connector “${c.name}” and its stored key will be deleted.`,
+                        actionLabel: "Delete",
+                        run: () => deleteConnector(c.id),
+                      })
+                    }
+                    aria-label={`Delete ${c.name}`}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={addConnector} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Input
+              value={cName}
+              onChange={(e) => setCName(e.target.value)}
+              placeholder="Name (e.g. resend)"
+            />
+            <Input
+              value={cBaseUrl}
+              onChange={(e) => setCBaseUrl(e.target.value)}
+              placeholder="Base URL (https://api.example.com)"
+            />
+            <select value={cAuthType} onChange={(e) => setCAuthType(e.target.value)} className={selectClass}>
+              {AUTH_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            {authFieldLabel ? (
+              <Input
+                value={cAuthField}
+                onChange={(e) => setCAuthField(e.target.value)}
+                placeholder={authFieldLabel}
+              />
+            ) : (
+              <Input
+                value={cTestPath}
+                onChange={(e) => setCTestPath(e.target.value)}
+                placeholder="Test path (optional, e.g. /v1/models)"
+              />
+            )}
+            {cAuthType !== "none" && (
+              <Input
+                value={cKey}
+                onChange={(e) => setCKey(e.target.value)}
+                placeholder="API key / token"
+                type="password"
+              />
+            )}
+            {authFieldLabel && (
+              <Input
+                value={cTestPath}
+                onChange={(e) => setCTestPath(e.target.value)}
+                placeholder="Test path (optional)"
+              />
+            )}
+            <Button
+              type="submit"
+              disabled={cBusy || !cName.trim() || !cBaseUrl.trim() || (cAuthType !== "none" && !cKey.trim())}
+              className="sm:col-span-2"
+            >
+              {cBusy && <Loader2 className="animate-spin" />}
+              {cBusy ? "Testing…" : "Save connector"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="size-4" />
+            </span>
+            Agent
+          </CardTitle>
+          <CardDescription>Default model and personality for new chats.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="model-select">Model</Label>
+            <select id="model-select" value={model} onChange={(e) => setModel(e.target.value)} className={selectClass}>
+              {MODELS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="system-prompt">System prompt</Label>
+            <Textarea
+              id="system-prompt"
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              rows={4}
+              placeholder="Leave empty for the default personality…"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={saveSettings}>Save</Button>
+            {saved && (
+              <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+                <CheckCircle2 className="size-4" /> Saved
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!confirmState} onOpenChange={(o) => !o && setConfirmState(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmState?.title}</DialogTitle>
+            <DialogDescription>{confirmState?.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmState(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                confirmState?.run();
+                setConfirmState(null);
+              }}
+            >
+              {confirmState?.actionLabel}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
-    </div>
   );
 }
