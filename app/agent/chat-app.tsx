@@ -641,6 +641,15 @@ export default function ChatApp() {
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => router.push("/agent/sites")}
+              title="My websites"
+              aria-label="My websites"
+            >
+              <Globe className="size-[18px]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => router.push("/agent/settings")}
               title="Settings & keys"
               aria-label="Settings & keys"
@@ -795,6 +804,31 @@ export default function ChatApp() {
                                   </figcaption>
                                 </figure>
                               )}
+                              {part.state === "output-available" &&
+                                (out?.previewUrl || (out?.liveUrl && (out?.target === "production" || out?.status === "live"))) && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {out.previewUrl && (
+                                      <a
+                                        href={out.previewUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="rounded-full border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-muted"
+                                      >
+                                        Open preview ↗
+                                      </a>
+                                    )}
+                                    {out.liveUrl && (out?.target === "production" || out?.status === "live") && (
+                                      <a
+                                        href={out.liveUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                                      >
+                                        Open live site ↗
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
                             </Fragment>
                           );
                         }
