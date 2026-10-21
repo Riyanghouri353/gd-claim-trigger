@@ -14,6 +14,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { id } = await params;
   const file = await getAgentFile(id);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+  // Images are stored as base64 text — decode to binary. Serve them inline
+  // (no attachment disposition) so chat can embed screenshots directly.
+  if (file.mime.startsWith("image/")) {
+    return new Response(Buffer.from(file.content, "base64"), {
+      headers: { "Content-Type": file.mime, "Cache-Control": "private, max-age=3600" },
+    });
+  }
   return new Response(file.content, {
     headers: {
       "Content-Type": file.mime,

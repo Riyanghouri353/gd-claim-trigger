@@ -764,7 +764,39 @@ export default function ChatApp() {
                               </p>
                             );
                           }
-                          return <ToolCallCard key={i} part={part} />;
+                          const out: any = part.output;
+                          return (
+                            <Fragment key={i}>
+                              <ToolCallCard part={part} />
+                              {part.state === "output-available" && out?.screenshotPath && (
+                                <figure className="mt-2 overflow-hidden rounded-xl border">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={out.screenshotPath}
+                                    alt={out.title || "Browser screenshot"}
+                                    className="w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                  <figcaption className="flex items-center justify-between gap-2 bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                                    <span className="flex min-w-0 items-center gap-1.5">
+                                      <Globe className="size-3.5 shrink-0" />
+                                      <span className="truncate">{out.title || out.url || "Screenshot"}</span>
+                                    </span>
+                                    {out.streamUrl && (
+                                      <a
+                                        href={out.streamUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="shrink-0 font-medium text-primary hover:underline"
+                                      >
+                                        Watch live
+                                      </a>
+                                    )}
+                                  </figcaption>
+                                </figure>
+                              )}
+                            </Fragment>
+                          );
                         }
                         return null;
                       })}

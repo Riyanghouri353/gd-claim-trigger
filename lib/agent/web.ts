@@ -1,7 +1,7 @@
 import { assertPublicUrl, fetchWithTimeout } from "./connectors";
 
 /** Strip HTML down to readable text (scripts/styles/nav removed). */
-function htmlToText(html: string): string {
+export function htmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")

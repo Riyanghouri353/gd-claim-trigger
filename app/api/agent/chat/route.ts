@@ -20,6 +20,7 @@ import { listMemories, addMemory } from "@/lib/agent/memory";
 import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
+import { browsePage, browserOpen, browserAct, browserClose } from "@/lib/agent/browser";
 
 export const maxDuration = 60;
 
@@ -156,6 +157,11 @@ export async function POST(req: Request) {
   systemPrompt +=
     "\n\nVisual guides: when your answer describes a structure, architecture, process, comparison, or step-by-step overview, call the show_guide tool to present it as visual cards with flow arrows (ChatGPT-style diagram), then summarize briefly in text. Do not repeat the whole guide as a long plain-text list.";
 
+  if (e2bKey) {
+    systemPrompt +=
+      "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. Inside the interactive browser, navigate by clicking the address bar (or press ctrl+l), typing the URL, and pressing enter.";
+  }
+
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
     gemini: "gemini-2.5-flash",
@@ -193,6 +199,28 @@ export async function POST(req: Request) {
                 headers: { "Lovable-API-Key": apiKey },
                 fetch: lovableFetch,
               });
+
+    // Browser tool results → model input. Gemini gets the actual screenshot
+    // image (it can aim clicks); other providers get text + the knowledge
+    // that the user sees the screenshot in chat. (toModelOutput must be
+    // synchronous in this SDK, so the base64 rides in the tool output and
+    // is stripped from the JSON the model reads.)
+    const browseModelOutput = ({ output }: any) => {
+      const o: any = output || {};
+      const { screenshotId, screenshotBase64, ...rest } = o;
+      const parts: any[] = [
+        { type: "text", text: o.text ? String(o.text) : JSON.stringify(rest) },
+      ];
+      if (screenshotBase64 && provider === "gemini") {
+        parts.push({ type: "file", data: screenshotBase64, mediaType: "image/png" });
+      } else if (o.screenshotPath) {
+        parts.push({
+          type: "text",
+          text: "A screenshot of the current page state was taken and is displayed to the user in the chat.",
+        });
+      }
+      return { type: "content" as const, value: parts };
+    };
 
     const tools: Record<string, any> = {
       get_current_time: tool({
@@ -282,6 +310,79 @@ export async function POST(req: Request) {
                   return { ok: false, error: `Sandbox error: ${e?.message || e}` };
                 }
               },
+            }),
+          }
+        : {}),
+      ...(e2bKey
+        ? {
+            browse_page: tool({
+              description:
+                "Render a web page in a real Chrome browser (JavaScript fully executed — use when read_url returns empty/blocked content or the page is an app/dashboard) and extract its readable text. Optionally capture a screenshot, shown to the user.",
+              inputSchema: z.object({
+                url: z.string().describe("Full http(s) URL"),
+                screenshot: z
+                  .boolean()
+                  .default(false)
+                  .describe("Also capture a screenshot of the rendered page"),
+              }),
+              execute: async ({ url, screenshot }) => {
+                try {
+                  return await browsePage(e2bKey, conversationId, url, screenshot);
+                } catch (e: any) {
+                  return { ok: false, error: `Browse failed: ${e?.message || e}` };
+                }
+              },
+              toModelOutput: browseModelOutput,
+            }),
+            browser_open: tool({
+              description:
+                "Open a page in the interactive cloud browser (a live desktop with Chrome). Starts a session kept across calls in this conversation. Returns a screenshot (shown to the user, and to you on vision providers), the window title, screen size, and a Watch-live link for the user.",
+              inputSchema: z.object({
+                url: z.string().describe("Full http(s) URL to open"),
+              }),
+              execute: async ({ url }) => {
+                try {
+                  return await browserOpen(e2bKey, conversationId, url);
+                } catch (e: any) {
+                  return { ok: false, error: `Browser failed: ${e?.message || e}` };
+                }
+              },
+              toModelOutput: browseModelOutput,
+            }),
+            browser_act: tool({
+              description:
+                "Perform one action in the interactive browser session and get a fresh screenshot: click (pixel x,y on the screenshot), type (text at the focused element — click a field first), press (a key or combo like 'enter', 'ctrl+l', 'tab', 'pagedown'), scroll, or screenshot (just look again).",
+              inputSchema: z.object({
+                action: z.enum(["click", "type", "press", "scroll", "screenshot"]),
+                x: z.number().optional().describe("For click: horizontal pixel"),
+                y: z.number().optional().describe("For click: vertical pixel"),
+                text: z.string().optional().describe("For type: the text to type"),
+                key: z
+                  .string()
+                  .optional()
+                  .describe("For press: e.g. 'enter', 'escape', 'tab', 'ctrl+l', 'ctrl+a'"),
+                direction: z.enum(["up", "down"]).optional().describe("For scroll"),
+              }),
+              execute: async ({ action, x, y, text, key, direction }) => {
+                try {
+                  return await browserAct(e2bKey, conversationId, action, {
+                    x,
+                    y,
+                    text,
+                    key,
+                    direction,
+                  });
+                } catch (e: any) {
+                  return { ok: false, error: `Browser action failed: ${e?.message || e}` };
+                }
+              },
+              toModelOutput: browseModelOutput,
+            }),
+            browser_close: tool({
+              description:
+                "Close the interactive browser session and free the sandbox. Use when the browsing task is finished.",
+              inputSchema: z.object({}),
+              execute: async () => browserClose(conversationId),
             }),
           }
         : {}),

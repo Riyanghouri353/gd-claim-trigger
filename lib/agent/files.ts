@@ -49,3 +49,26 @@ export async function getAgentFile(id: string): Promise<AgentFileRow | null> {
     .maybeSingle();
   return (data as AgentFileRow) ?? null;
 }
+
+/**
+ * Store an image (e.g. a browser screenshot) as base64 text in agent_files.
+ * The download route decodes it back to binary for image mime types.
+ */
+export async function createAgentImageFile(
+  name: string,
+  base64: string,
+  mime = "image/png"
+): Promise<{ id: string; path: string }> {
+  const { data, error } = await getServiceClient()
+    .from("agent_files")
+    .insert({
+      name,
+      mime,
+      content: base64,
+      size: Math.floor((base64.length * 3) / 4),
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error("Could not store image");
+  return { id: data.id, path: `/api/agent/files/${data.id}` };
+}

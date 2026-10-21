@@ -652,11 +652,12 @@ export default function SettingsClient() {
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Code2 className="size-4" />
             </span>
-            Code execution (E2B)
+            Code execution + Browser (E2B)
           </CardTitle>
           <CardDescription>
             Lets your agent run Python/JavaScript in a secure E2B cloud sandbox — never on
-            this server. Get a free key at{" "}
+            this server. The same key also powers browser automation (a cloud desktop with
+            Chrome). Get a free key at{" "}
             <a href="https://e2b.dev" target="_blank" rel="noreferrer" className="underline">
               e2b.dev
             </a>
