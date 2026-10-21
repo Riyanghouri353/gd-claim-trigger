@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/agent/auth";
-import { getAgentFile } from "@/lib/agent/files";
+import { getAgentFile, AGENT_BUCKET } from "@/lib/agent/files";
+import { getServiceClient } from "@/lib/agent/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { id } = await params;
   const file = await getAgentFile(id);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
-  // Images are stored as base64 text — decode to binary. Serve them inline
-  // (no attachment disposition) so chat can embed screenshots directly.
+  // Images live in Supabase Storage — fetch the object and stream it back
+  // inline (no attachment disposition) so chat can embed screenshots.
+  if (file.storage_path) {
+    const sb = getServiceClient();
+    const dl = await sb.storage.from(AGENT_BUCKET).download(file.storage_path);
+    if (dl.error || !dl.data) {
+      return NextResponse.json({ error: "File content missing" }, { status: 404 });
+    }
+    return new Response(await dl.data.arrayBuffer(), {
+      headers: { "Content-Type": file.mime, "Cache-Control": "private, max-age=3600" },
+    });
+  }
+  // Legacy rows stored images as base64 text in the content column.
   if (file.mime.startsWith("image/")) {
     return new Response(Buffer.from(file.content, "base64"), {
       headers: { "Content-Type": file.mime, "Cache-Control": "private, max-age=3600" },

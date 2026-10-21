@@ -6,8 +6,12 @@ export interface AgentFileRow {
   mime: string;
   content: string;
   size: number;
+  storage_path: string | null;
+  conversation_id: string | null;
   created_at: string;
 }
+
+export const AGENT_BUCKET = "agent-files";
 
 const MIME_BY_EXT: Record<string, string> = {
   md: "text/markdown",
@@ -27,14 +31,21 @@ const MIME_BY_EXT: Record<string, string> = {
 /** Store a text file the agent generated; returns its id + download path. */
 export async function createAgentFile(
   name: string,
-  content: string
+  content: string,
+  conversationId?: string | null
 ): Promise<{ id: string; path: string }> {
   const safeName = name.replace(/[^\w.\- ]+/g, "").slice(0, 120) || "file.txt";
   const ext = safeName.split(".").pop()?.toLowerCase() || "";
   const mime = MIME_BY_EXT[ext] || "text/plain";
   const { data, error } = await getServiceClient()
     .from("agent_files")
-    .insert({ name: safeName, mime, content, size: content.length })
+    .insert({
+      name: safeName,
+      mime,
+      content,
+      size: content.length,
+      conversation_id: conversationId ?? null,
+    })
     .select("id")
     .single();
   if (error || !data) throw new Error("Could not store file");
@@ -51,24 +62,54 @@ export async function getAgentFile(id: string): Promise<AgentFileRow | null> {
 }
 
 /**
- * Store an image (e.g. a browser screenshot) as base64 text in agent_files.
- * The download route decodes it back to binary for image mime types.
+ * Store an image (e.g. a browser screenshot) in Supabase Storage — binary in
+ * the `agent-files` bucket, only metadata in the DB row. The files route
+ * serves it back through the session gate. Linked to its conversation so
+ * deleting the chat purges the object and frees the storage.
  */
 export async function createAgentImageFile(
   name: string,
   base64: string,
-  mime = "image/png"
+  mime = "image/png",
+  conversationId?: string | null
 ): Promise<{ id: string; path: string }> {
-  const { data, error } = await getServiceClient()
+  const sb = getServiceClient();
+  const id = crypto.randomUUID();
+  const ext = mime === "image/jpeg" ? "jpg" : "png";
+  const storagePath = `images/${id}.${ext}`;
+  const bytes = Buffer.from(base64, "base64");
+  const up = await sb.storage
+    .from(AGENT_BUCKET)
+    .upload(storagePath, bytes, { contentType: mime, upsert: false });
+  if (up.error) throw new Error(`Could not store image: ${up.error.message}`);
+  const { error } = await sb.from("agent_files").insert({
+    id,
+    name,
+    mime,
+    content: "",
+    size: bytes.length,
+    storage_path: storagePath,
+    conversation_id: conversationId ?? null,
+  });
+  if (error) {
+    await sb.storage.from(AGENT_BUCKET).remove([storagePath]).catch(() => {});
+    throw new Error("Could not store image");
+  }
+  return { id, path: `/api/agent/files/${id}` };
+}
+
+/** Delete every file (rows + storage objects) belonging to a conversation. */
+export async function deleteConversationFiles(conversationId: string): Promise<void> {
+  const sb = getServiceClient();
+  const { data } = await sb
     .from("agent_files")
-    .insert({
-      name,
-      mime,
-      content: base64,
-      size: Math.floor((base64.length * 3) / 4),
-    })
-    .select("id")
-    .single();
-  if (error || !data) throw new Error("Could not store image");
-  return { id: data.id, path: `/api/agent/files/${data.id}` };
+    .select("storage_path")
+    .eq("conversation_id", conversationId);
+  const paths = (data ?? [])
+    .map((r: any) => r.storage_path)
+    .filter((p: string | null): p is string => !!p);
+  if (paths.length) {
+    await sb.storage.from(AGENT_BUCKET).remove(paths).catch(() => {});
+  }
+  await sb.from("agent_files").delete().eq("conversation_id", conversationId);
 }

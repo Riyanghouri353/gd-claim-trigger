@@ -20,7 +20,7 @@ import { listMemories, addMemory } from "@/lib/agent/memory";
 import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
-import { browsePage, browserOpen, browserAct, browserClose } from "@/lib/agent/browser";
+import { browsePage, browserOpen, browserAct, browserClose, getCachedScreenshot } from "@/lib/agent/browser";
 
 export const maxDuration = 60;
 
@@ -201,18 +201,18 @@ export async function POST(req: Request) {
               });
 
     // Browser tool results → model input. Gemini gets the actual screenshot
-    // image (it can aim clicks); other providers get text + the knowledge
-    // that the user sees the screenshot in chat. (toModelOutput must be
-    // synchronous in this SDK, so the base64 rides in the tool output and
-    // is stripped from the JSON the model reads.)
+    // image (it can aim clicks) from the server-side screenshot cache;
+    // other providers get text + the knowledge that the user sees the
+    // screenshot in chat. The tool output itself carries no base64.
     const browseModelOutput = ({ output }: any) => {
       const o: any = output || {};
-      const { screenshotId, screenshotBase64, ...rest } = o;
+      const { screenshotId, ...rest } = o;
       const parts: any[] = [
         { type: "text", text: o.text ? String(o.text) : JSON.stringify(rest) },
       ];
-      if (screenshotBase64 && provider === "gemini") {
-        parts.push({ type: "file", data: screenshotBase64, mediaType: "image/png" });
+      const cached = screenshotId ? getCachedScreenshot(screenshotId) : undefined;
+      if (cached && provider === "gemini") {
+        parts.push({ type: "file", data: cached, mediaType: "image/png" });
       } else if (o.screenshotPath) {
         parts.push({
           type: "text",
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ name, content }) => {
           try {
-            const f = await createAgentFile(name, content);
+            const f = await createAgentFile(name, content, conversationId);
             return { ok: true, name, download: f.path };
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not create file" };

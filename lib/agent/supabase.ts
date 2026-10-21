@@ -110,9 +110,9 @@ export type Database = {
         Relationships: [];
       };
       agent_files: {
-        Row: { id: string; name: string; mime: string; content: string; size: number; created_at: string };
-        Insert: { name: string; mime: string; content: string; size: number };
-        Update: { name?: string; mime?: string; content?: string; size?: number };
+        Row: { id: string; name: string; mime: string; content: string; size: number; storage_path: string | null; conversation_id: string | null; created_at: string };
+        Insert: { id?: string; name: string; mime: string; content: string; size: number; storage_path?: string | null; conversation_id?: string | null };
+        Update: { name?: string; mime?: string; content?: string; size?: number; storage_path?: string | null; conversation_id?: string | null };
         Relationships: [];
       };
       messages: {

@@ -19,6 +19,25 @@ interface BrowserSession {
 
 const sessions = new Map<string, BrowserSession>();
 
+/**
+ * Short-lived screenshot bytes for vision grounding (toModelOutput must be
+ * synchronous, so the image can't be fetched at conversion time). The tool
+ * output itself stays free of base64 — it once bloated every request.
+ */
+const shotCache = new Map<string, string>();
+
+export function cacheScreenshot(id: string, base64: string): void {
+  shotCache.set(id, base64);
+  if (shotCache.size > 12) {
+    const first = shotCache.keys().next().value;
+    if (first) shotCache.delete(first);
+  }
+}
+
+export function getCachedScreenshot(id: string): string | undefined {
+  return shotCache.get(id);
+}
+
 function keyOf(conversationId: string | null): string {
   return conversationId || "default";
 }
@@ -63,12 +82,19 @@ async function getSession(key: string, apiKey: string): Promise<BrowserSession> 
 }
 
 async function snap(
-  session: BrowserSession
-): Promise<{ id: string; path: string; base64: string }> {
+  session: BrowserSession,
+  conversationId: string | null
+): Promise<{ id: string; path: string }> {
   const bytes = await session.desktop.screenshot();
   const base64 = Buffer.from(bytes).toString("base64");
-  const file = await createAgentImageFile("browser-screenshot.png", base64, "image/png");
-  return { ...file, base64 };
+  const file = await createAgentImageFile(
+    "browser-screenshot.png",
+    base64,
+    "image/png",
+    conversationId
+  );
+  cacheScreenshot(file.id, base64);
+  return file;
 }
 
 async function currentTitle(session: BrowserSession): Promise<string> {
@@ -89,8 +115,6 @@ export interface BrowseResult {
   truncated?: boolean;
   screenshotId?: string;
   screenshotPath?: string;
-  /** Base64 PNG — used only by toModelOutput (vision grounding); stripped before the model sees the JSON and ignored by the UI. */
-  screenshotBase64?: string;
   streamUrl?: string;
   screen?: { width: number; height: number } | null;
   error?: string;
@@ -116,7 +140,7 @@ export async function browsePage(
   const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || "";
   const text = htmlToText(html);
 
-  let shot: { id: string; path: string; base64: string } | undefined;
+  let shot: { id: string; path: string } | undefined;
   if (wantScreenshot) {
     await session.desktop.commands.run(
       `${chrome} --screenshot=/tmp/browse-shot.png ${shellQuote(url)} 2>/dev/null`,
@@ -127,8 +151,8 @@ export async function browsePage(
         format: "bytes",
       });
       const base64 = Buffer.from(buf as ArrayBuffer).toString("base64");
-      const file = await createAgentImageFile("page-screenshot.png", base64, "image/png");
-      shot = { ...file, base64 };
+      shot = await createAgentImageFile("page-screenshot.png", base64, "image/png", conversationId);
+      cacheScreenshot(shot.id, base64);
     } catch {
       /* screenshot is best-effort */
     }
@@ -142,7 +166,6 @@ export async function browsePage(
     truncated: text.length > 7000,
     screenshotId: shot?.id,
     screenshotPath: shot?.path,
-    screenshotBase64: shot?.base64,
   };
 }
 
@@ -159,8 +182,21 @@ export async function browserOpen(
   } catch {
     await session.desktop.open(url);
   }
-  await wait(3500);
   session.currentUrl = url;
+
+  // Wait until a Chrome window actually exists (up to ~12s) — screenshotting
+  // immediately catches the bare desktop (window title "Xfwm4") instead of
+  // the page. Then give the page a moment to render.
+  for (let i = 0; i < 12; i++) {
+    await wait(1000);
+    try {
+      const wins = await session.desktop.getApplicationWindows("google-chrome");
+      if (wins && wins.length > 0) break;
+    } catch {
+      /* not up yet */
+    }
+  }
+  await wait(2500);
 
   if (!session.streamUrl) {
     try {
@@ -173,7 +209,7 @@ export async function browserOpen(
     }
   }
 
-  const shot = await snap(session);
+  const shot = await snap(session, conversationId);
   const screen = await session.desktop.getScreenSize().catch(() => null);
   return {
     ok: true,
@@ -182,7 +218,6 @@ export async function browserOpen(
     screen,
     screenshotId: shot.id,
     screenshotPath: shot.path,
-    screenshotBase64: shot.base64,
     streamUrl: session.streamUrl,
   };
 }
@@ -226,14 +261,13 @@ export async function browserAct(
       break;
   }
   await wait(900);
-  const shot = await snap(session);
+  const shot = await snap(session, conversationId);
   return {
     ok: true,
     url: session.currentUrl,
     title: await currentTitle(session),
     screenshotId: shot.id,
     screenshotPath: shot.path,
-    screenshotBase64: shot.base64,
     streamUrl: session.streamUrl,
   };
 }
