@@ -7,6 +7,7 @@ import {
   Brain,
   CheckCircle2,
   Code2,
+  Globe,
   KeyRound,
   Loader2,
   Plug,
@@ -129,6 +130,13 @@ export default function SettingsClient() {
   const [e2bKeyValue, setE2bKeyValue] = useState("");
   const [e2bBusy, setE2bBusy] = useState(false);
   const [e2bMsg, setE2bMsg] = useState("");
+  const [siteVercel, setSiteVercel] = useState(false);
+  const [siteCloudflare, setSiteCloudflare] = useState(false);
+  const [vercelTokenValue, setVercelTokenValue] = useState("");
+  const [vercelTeamValue, setVercelTeamValue] = useState("");
+  const [cfTokenValue, setCfTokenValue] = useState("");
+  const [siteBusy, setSiteBusy] = useState(false);
+  const [siteMsg, setSiteMsg] = useState("");
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
   const [cName, setCName] = useState("");
   const [cBaseUrl, setCBaseUrl] = useState("");
@@ -144,7 +152,7 @@ export default function SettingsClient() {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   async function load() {
-    const [kr, gkr, lkr, sr, cr, mr, er] = await Promise.all([
+    const [kr, gkr, lkr, sr, cr, mr, er, scr] = await Promise.all([
       fetch("/api/agent/keys"),
       fetch("/api/agent/gemini-keys"),
       fetch("/api/agent/lovable-keys"),
@@ -152,7 +160,14 @@ export default function SettingsClient() {
       fetch("/api/agent/connectors"),
       fetch("/api/agent/memories"),
       fetch("/api/agent/e2b-key"),
+      fetch("/api/agent/site-config"),
     ]);
+    if (scr.ok) {
+      const j = await scr.json();
+      setSiteVercel(!!j.vercel);
+      setSiteCloudflare(!!j.cloudflare);
+      setVercelTeamValue(j.vercelTeamId || "");
+    }
     if (kr.ok) setKeys((await kr.json()).keys ?? []);
     if (gkr.ok) setGKeys((await gkr.json()).keys ?? []);
     if (lkr.ok) setLKeys((await lkr.json()).keys ?? []);
@@ -321,6 +336,37 @@ export default function SettingsClient() {
   async function removeE2BKey() {
     await fetch("/api/agent/e2b-key", { method: "DELETE" });
     setE2bMsg("E2B key removed");
+    load();
+  }
+
+  async function saveSiteConfig(e: React.FormEvent) {
+    e.preventDefault();
+    setSiteBusy(true);
+    setSiteMsg("");
+    const res = await fetch("/api/agent/site-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vercelToken: vercelTokenValue || undefined,
+        vercelTeamId: vercelTeamValue,
+        cloudflareToken: cfTokenValue || undefined,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setSiteBusy(false);
+    if (!res.ok) {
+      setSiteMsg("❌ " + (j.error || "Failed to save"));
+      return;
+    }
+    setVercelTokenValue("");
+    setCfTokenValue("");
+    setSiteMsg("✅ Hosting tokens saved — the website builder is ready");
+    load();
+  }
+
+  async function removeSiteConfig() {
+    await fetch("/api/agent/site-config", { method: "DELETE" });
+    setSiteMsg("Hosting tokens removed");
     load();
   }
 
@@ -703,6 +749,85 @@ export default function SettingsClient() {
               </Button>
             </form>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Globe className="size-4" />
+            </span>
+            Website builder (Vercel + Cloudflare)
+          </CardTitle>
+          <CardDescription>
+            Lets your agent generate Next.js websites, deploy previews to Vercel, and publish
+            them live at <strong>your-site.veritask.site</strong>. Needs two API tokens, both
+            stored AES-256 encrypted and verified before saving: a{" "}
+            <a href="https://vercel.com/account/tokens" target="_blank" rel="noreferrer" className="underline">
+              Vercel token
+            </a>{" "}
+            (account → Settings → Tokens) and a{" "}
+            <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="underline">
+              Cloudflare token
+            </a>{" "}
+            with DNS:Edit on the veritask.site zone only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={siteMsg} />
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Badge variant={siteVercel ? "success" : "secondary"}>
+              Vercel {siteVercel ? "connected" : "not set"}
+            </Badge>
+            <Badge variant={siteCloudflare ? "success" : "secondary"}>
+              Cloudflare {siteCloudflare ? "connected" : "not set"}
+            </Badge>
+            {(siteVercel || siteCloudflare) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() =>
+                  confirm({
+                    title: "Remove hosting tokens?",
+                    description:
+                      "Site generation still works, but deploying and publishing turn off until tokens are added again.",
+                    actionLabel: "Remove",
+                    run: removeSiteConfig,
+                  })
+                }
+              >
+                Remove all
+              </Button>
+            )}
+          </div>
+          <form onSubmit={saveSiteConfig} className="space-y-2">
+            <Input
+              value={vercelTokenValue}
+              onChange={(e) => setVercelTokenValue(e.target.value)}
+              placeholder={siteVercel ? "Vercel token — set (paste to replace)" : "Vercel API token"}
+              type="password"
+            />
+            <Input
+              value={vercelTeamValue}
+              onChange={(e) => setVercelTeamValue(e.target.value)}
+              placeholder="Vercel Team ID (optional — only for team accounts, starts team_…)"
+            />
+            <Input
+              value={cfTokenValue}
+              onChange={(e) => setCfTokenValue(e.target.value)}
+              placeholder={siteCloudflare ? "Cloudflare token — set (paste to replace)" : "Cloudflare API token (DNS edit on veritask.site)"}
+              type="password"
+            />
+            <Button
+              type="submit"
+              disabled={siteBusy || (!vercelTokenValue.trim() && !cfTokenValue.trim() && !vercelTeamValue.trim())}
+            >
+              {siteBusy && <Loader2 className="animate-spin" />}
+              {siteBusy ? "Verifying…" : "Save tokens"}
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
