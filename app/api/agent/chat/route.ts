@@ -172,9 +172,10 @@ export async function POST(req: Request) {
   }
 
   systemPrompt +=
-    "\n\nWebsite builder: you can build frontend-only Next.js websites. Workflow: create_site (seeds a fixed scaffold — Next.js App Router, JavaScript/JSX, Tailwind) → write a real app/page.jsx plus any components with write_site_file (pages in app/, components in components/, mock data in lib/; NO API routes, server actions or databases — frontend only) → deploy_site with target=preview and share the preview URL. Edit by rewriting files and deploying preview again. Only deploy target=production when the user explicitly says publish / go live — that publishes to https://<slug>." +
+    "\n\nWebsite builder: you can build frontend-only Next.js websites. Workflow: create_site (seeds a fixed scaffold — Next.js App Router, JavaScript/JSX, Tailwind) → write a real app/page.jsx plus any components with write_site_file (pages in app/, custom components in components/, mock data in lib/; NO API routes, server actions or databases — frontend only) → deploy_site with target=preview and share the preview URL. Edit by rewriting files and deploying preview again. Only deploy target=production when the user explicitly says publish / go live — that publishes to https://<slug>." +
     SITE_APEX +
-    ". Never try to write package.json or config files; the scaffold owns them. Refer to sites by slug.";
+    ". Never try to write package.json, config files, app/layout.jsx, app/globals.css or lib/utils.js; the scaffold owns them. Refer to sites by slug." +
+    "\n\nUI RULE for websites: build every interface from the PREINSTALLED shadcn/ui component library — import { Button } from \"@/components/ui/button\", and Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator, Avatar from \"@/components/ui/…\". Use Lucide icons (import { ArrowRight, Star, Check } from \"lucide-react\") — never inline SVG icons. Do NOT hand-roll buttons, inputs, cards or modals with raw divs; compose library components, pass variant/size props, and style with Tailwind classes and theme tokens (bg-primary, text-primary-foreground, bg-card, text-muted-foreground, border-border, bg-muted, bg-accent). Use cn() from \"@/lib/utils\" for conditional classes. Put custom sections in components/ (components/ui/ is the library — never write there).";
 
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
@@ -309,9 +310,9 @@ export async function POST(req: Request) {
       }),
       create_site: tool({
         description:
-          "Create a new frontend-only Next.js website (fixed scaffold: App Router, JavaScript/JSX, Tailwind). The slug becomes its subdomain <slug>." +
+          "Create a new frontend-only Next.js website (fixed scaffold: App Router, JavaScript/JSX, Tailwind, shadcn/ui component library + Lucide icons preinstalled). The slug becomes its subdomain <slug>." +
           SITE_APEX +
-          ". After creating, write a real app/page.jsx (and components) with write_site_file, then deploy a preview.",
+          ". After creating, write a real app/page.jsx (and components) with write_site_file, composing @/components/ui components and lucide-react icons, then deploy a preview.",
         inputSchema: z.object({
           name: z.string().describe("Site name, e.g. 'Al Khair Bakery'"),
           slug: z
@@ -337,7 +338,7 @@ export async function POST(req: Request) {
       }),
       write_site_file: tool({
         description:
-          "Create or overwrite one file of a website (by slug). Pages: app/page.jsx, app/<route>/page.jsx. Components: components/*.jsx. Mock data: lib/*.js. Styles beyond Tailwind: components only — app/globals.css and configs are scaffold-owned. Frontend only: no API routes or server code.",
+          "Create or overwrite one file of a website (by slug). Pages: app/page.jsx, app/<route>/page.jsx. Custom components: components/*.jsx (NOT components/ui/ — that's the preinstalled shadcn/ui library: button, badge, card, input, textarea, label, accordion, tabs, dialog, separator, avatar; import and compose those). Mock data: lib/*.js. Frontend only: no API routes or server code.",
         inputSchema: z.object({
           site: z.string().describe("Site slug"),
           path: z.string().describe("e.g. app/page.jsx"),
