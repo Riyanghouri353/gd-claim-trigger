@@ -7,6 +7,12 @@ const inter = Inter({ subsets: ["latin"], display: "swap" });
 export default function AgentLayout({ children }: { children: ReactNode }) {
   return (
     <div className={`agent-shell min-h-dvh bg-background text-foreground ${inter.className}`}>
+      {/* Apply the saved theme before paint (no flash); ThemeToggle flips it. */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `try{if(localStorage.getItem("agent-theme")==="light"){document.documentElement.dataset.agentTheme="light"}}catch(e){}`,
+        }}
+      />
       {children}
     </div>
   );

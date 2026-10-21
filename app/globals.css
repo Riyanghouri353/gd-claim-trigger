@@ -827,3 +827,41 @@ details.config[open] summary::before { content: '▾'; }
 .agent-md blockquote { border-left: 3px solid var(--primary); padding-left: 0.9em; margin: 0 0 0.75em; color: var(--muted-foreground); }
 .agent-md hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
 .agent-md img { max-width: 100%; border-radius: 12px; }
+
+/* Riyan Agent — LIGHT theme. Activated by data-agent-theme="light" on
+   <html> (set pre-paint by the agent layout script, toggled + persisted
+   to localStorage by the ThemeToggle). Dark is the .agent-shell default. */
+:root[data-agent-theme="light"] .agent-shell {
+  --background: #f6f6fa;
+  --foreground: #1b1b26;
+  --card: #ffffff;
+  --card-foreground: #1b1b26;
+  --popover: #ffffff;
+  --popover-foreground: #1b1b26;
+  --primary: #6a5af0;
+  --primary-foreground: #ffffff;
+  --secondary: #eeeef5;
+  --secondary-foreground: #1b1b26;
+  --muted: #f0f0f6;
+  --muted-foreground: #62627a;
+  --accent: #e9e7f8;
+  --accent-foreground: #1b1b26;
+  --destructive: #dc3e42;
+  --border: rgba(23, 23, 40, 0.1);
+  --input: rgba(23, 23, 40, 0.16);
+  --ring: #6a5af0;
+  --sidebar: #efeff6;
+  --sidebar-foreground: #1b1b26;
+  --sidebar-primary: #6a5af0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e3e1f2;
+  --sidebar-accent-foreground: #1b1b26;
+  --sidebar-border: rgba(23, 23, 40, 0.08);
+  --sidebar-ring: #6a5af0;
+  color-scheme: light;
+}
+
+:root[data-agent-theme="light"] .agent-shell ::-webkit-scrollbar-thumb { background: #c6c4d8; }
+:root[data-agent-theme="light"] .agent-shell ::-webkit-scrollbar-thumb:hover { background: #aeabc4; }
+:root[data-agent-theme="light"] .agent-shell .agent-md a { color: #5a4bd1; }
+:root[data-agent-theme="light"] .agent-shell .agent-md pre { background: #17171f; color: #eceaf4; }

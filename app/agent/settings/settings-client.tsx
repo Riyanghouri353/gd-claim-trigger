@@ -35,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import ThemeToggle from "../theme-toggle";
 
 interface KeyRow {
   id: string;
@@ -513,10 +514,13 @@ export default function SettingsClient() {
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <Button variant="ghost" onClick={() => router.push("/agent")}>
-          <ArrowLeft />
-          Back to chat
-        </Button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button variant="ghost" onClick={() => router.push("/agent")}>
+            <ArrowLeft />
+            Back to chat
+          </Button>
+        </div>
       </div>
 
       {keySection({

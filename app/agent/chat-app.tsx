@@ -56,6 +56,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import ThemeToggle from "./theme-toggle";
 
 interface Conversation {
   id: string;
@@ -646,6 +647,7 @@ export default function ChatApp() {
             >
               <Settings className="size-[18px]" />
             </Button>
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"
