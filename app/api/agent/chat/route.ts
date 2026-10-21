@@ -30,6 +30,7 @@ import {
   deploySite,
   SITE_APEX,
 } from "@/lib/agent/sites";
+import { createTask, listTasks, describeSchedule } from "@/lib/agent/tasks";
 
 export const maxDuration = 60;
 
@@ -175,7 +176,8 @@ export async function POST(req: Request) {
     "\n\nWebsite builder: you can build frontend-only Next.js websites. Workflow: create_site (seeds a fixed scaffold — Next.js App Router, JavaScript/JSX, Tailwind) → write a real app/page.jsx plus any components with write_site_file (pages in app/, custom components in components/, mock data in lib/; NO API routes, server actions or databases — frontend only) → deploy_site with target=preview and share the preview URL. Edit by rewriting files and deploying preview again. Only deploy target=production when the user explicitly says publish / go live — that publishes to https://<slug>." +
     SITE_APEX +
     ". Never try to write package.json, config files, app/layout.jsx, app/globals.css or lib/utils.js; the scaffold owns them. Refer to sites by slug." +
-    "\n\nUI RULE for websites: build every interface from the PREINSTALLED shadcn/ui component library — import { Button } from \"@/components/ui/button\", and Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator, Avatar from \"@/components/ui/…\". Use Lucide icons (import { ArrowRight, Star, Check } from \"lucide-react\") — never inline SVG icons. Do NOT hand-roll buttons, inputs, cards or modals with raw divs; compose library components, pass variant/size props, and style with Tailwind classes and theme tokens (bg-primary, text-primary-foreground, bg-card, text-muted-foreground, border-border, bg-muted, bg-accent). Use cn() from \"@/lib/utils\" for conditional classes. Put custom sections in components/ (components/ui/ is the library — never write there).";
+    "\n\nUI RULE for websites: build every interface from the PREINSTALLED shadcn/ui component library — import { Button } from \"@/components/ui/button\", and Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator, Avatar from \"@/components/ui/…\". Use Lucide icons (import { ArrowRight, Star, Check } from \"lucide-react\") — never inline SVG icons. Do NOT hand-roll buttons, inputs, cards or modals with raw divs; compose library components, pass variant/size props, and style with Tailwind classes and theme tokens (bg-primary, text-primary-foreground, bg-card, text-muted-foreground, border-border, bg-muted, bg-accent). Use cn() from \"@/lib/utils\" for conditional classes. Put custom sections in components/ (components/ui/ is the library — never write there)." +
+    "\n\nScheduled tasks: when the user asks for something recurring (daily briefings, periodic checks, reminders with research), use create_task with complete self-contained instructions — the future run has no memory of this chat beyond long-term memory. Confirm the schedule back to the user in plain words.";
 
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
@@ -422,6 +424,54 @@ export async function POST(req: Request) {
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not read site" };
           }
+        },
+      }),
+      create_task: tool({
+        description:
+          "Create a scheduled autonomous task: the agent runs the instructions on a schedule with its full toolset and posts the report into a dedicated chat. Schedules: daily or weekly at time_of_day (HH:MM, 24h) in a timezone (default Asia/Karachi), or interval every interval_minutes (min 15). Use when the user asks for something recurring ('every morning…', 'daily', 'each Monday…').",
+        inputSchema: z.object({
+          name: z.string().describe("Short task name"),
+          instructions: z
+            .string()
+            .describe("Complete, self-contained instructions for the future run — no chat context will exist then"),
+          schedule_kind: z.enum(["daily", "weekly", "interval"]),
+          time_of_day: z.string().optional().describe("HH:MM 24h, for daily/weekly"),
+          weekday: z.number().min(0).max(6).optional().describe("For weekly: 0=Sunday … 6=Saturday"),
+          interval_minutes: z.number().optional().describe("For interval schedules (min 15)"),
+          timezone: z.string().optional().describe("IANA timezone, default Asia/Karachi"),
+        }),
+        execute: async (input) => {
+          try {
+            const t = await createTask({ ...input, timezone: input.timezone || "Asia/Karachi" });
+            return {
+              ok: true,
+              id: t.id,
+              name: t.name,
+              schedule: describeSchedule(t),
+              nextRun: t.next_run_at,
+              note: "Reports will appear in a chat named ⏰ " + t.name + " and on the Tasks page.",
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not create task" };
+          }
+        },
+      }),
+      list_tasks: tool({
+        description: "List the user's scheduled autonomous tasks with schedules, next run and last status.",
+        inputSchema: z.object({}),
+        execute: async () => {
+          const all = await listTasks();
+          return {
+            ok: true,
+            tasks: all.map((t) => ({
+              name: t.name,
+              schedule: describeSchedule(t),
+              enabled: t.enabled,
+              lastStatus: t.last_status,
+              lastRun: t.last_run_at,
+              nextRun: t.next_run_at,
+            })),
+          };
         },
       }),
       ...(e2bKey

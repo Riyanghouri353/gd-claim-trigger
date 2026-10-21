@@ -19,6 +19,7 @@ import {
   Code2,
   Database,
   Globe,
+  AlarmClock,
   KeyRound,
   Layers,
   Loader2,
@@ -638,6 +639,15 @@ export default function ChatApp() {
                 Personal workspace
               </p>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => router.push("/agent/tasks")}
+              title="Scheduled tasks"
+              aria-label="Scheduled tasks"
+            >
+              <AlarmClock className="size-[18px]" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
