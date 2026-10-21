@@ -1,30 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ArrowDown,
   ArrowUp,
+  BarChart3,
+  Bell,
+  Bot,
+  Box,
   Brain,
   ChevronDown,
+  Cloud,
   Code2,
+  Database,
+  Globe,
+  KeyRound,
+  Layers,
+  Loader2,
   LogOut,
+  Mail,
   Menu,
   MessageSquare,
+  Monitor,
   Paperclip,
   RotateCcw,
   Search,
+  Server,
   Settings,
   ShieldAlert,
+  ShieldCheck,
+  Smartphone,
   Sparkles,
   SquarePen,
   Trash2,
   TrendingUp,
+  Wallet,
   Wrench,
   X,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,6 +196,112 @@ function ToolCallCard({ part }: { part: any }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** GitHub mark (lucide dropped brand icons) — simple-icons path. */
+function GithubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.75 2.69 1.25 1.94-.75.4-1.25.7-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 1.28 1.06.82.57 1.11 1.83 0 1.07-.01 2.9-.01 3.29 0 .31.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z" />
+    </svg>
+  );
+}
+
+/** Icons the model can pick for guide cards, by name. */
+const GUIDE_ICONS: Record<string, any> = {
+  github: GithubIcon,
+  monitor: Monitor,
+  server: Server,
+  database: Database,
+  globe: Globe,
+  shield: ShieldCheck,
+  zap: Zap,
+  layers: Layers,
+  box: Box,
+  cloud: Cloud,
+  phone: Smartphone,
+  code: Code2,
+  chart: BarChart3,
+  wallet: Wallet,
+  bot: Bot,
+  key: KeyRound,
+  mail: Mail,
+  bell: Bell,
+};
+
+function guideBadge(tone?: string): { variant?: "success" | "default" | "secondary" | "destructive"; className?: string } {
+  switch (tone) {
+    case "green":
+      return { variant: "success" };
+    case "red":
+      return { variant: "destructive" };
+    case "gray":
+      return { variant: "secondary" };
+    case "amber":
+      return { className: "border-transparent bg-amber-500/15 text-amber-400" };
+    default:
+      return { variant: "default" };
+  }
+}
+
+function GuideMiniCard({ card }: { card: any }) {
+  const Icon = GUIDE_ICONS[String(card?.icon || "").toLowerCase()] || Box;
+  const badgeProps = card?.badge ? guideBadge(card.badgeTone) : null;
+  return (
+    <div className="rounded-xl border bg-muted/40 p-4">
+      <div className="mb-2.5 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="size-5" />
+      </div>
+      <p className="text-[15px] font-semibold leading-snug">{card?.title}</p>
+      {card?.badge && (
+        <Badge {...badgeProps} className={`mt-2 ${badgeProps?.className || ""}`}>
+          {card.badge}
+        </Badge>
+      )}
+      {Array.isArray(card?.lines) &&
+        card.lines.map((l: string, i: number) => (
+          <p key={i} className="mt-1.5 text-sm leading-relaxed text-foreground/85">
+            {l}
+          </p>
+        ))}
+      {card?.muted && <p className="mt-1.5 text-xs text-muted-foreground">{card.muted}</p>}
+    </div>
+  );
+}
+
+/** ChatGPT-style visual guide: titled cards connected by flow arrows. */
+function GuideCard({ input }: { input: any }) {
+  const blocks: any[] = Array.isArray(input?.blocks) ? input.blocks : [];
+  if (!input?.title || blocks.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <h3 className="mb-2 text-base font-bold tracking-tight">{input.title}</h3>
+      <div className="rounded-2xl border bg-card/60 p-3">
+        {blocks.map((b: any, i: number) => (
+          <Fragment key={i}>
+            {i > 0 && (
+              <div className="flex justify-center py-1.5">
+                <ArrowDown className="size-4 text-muted-foreground" />
+              </div>
+            )}
+            {b?.kind === "row" && Array.isArray(b.cards) && b.cards.length > 0 ? (
+              <div
+                className={`grid gap-3 ${
+                  b.cards.length >= 3 ? "sm:grid-cols-3" : b.cards.length === 2 ? "sm:grid-cols-2" : ""
+                }`}
+              >
+                {b.cards.map((c: any, j: number) => (
+                  <GuideMiniCard key={j} card={c} />
+                ))}
+              </div>
+            ) : (
+              <GuideMiniCard card={b} />
+            )}
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }
@@ -624,6 +748,20 @@ export default function ChatApp() {
                           );
                         }
                         if (typeof part.type === "string" && part.type.includes("tool")) {
+                          if (toolLabel(part) === "show_guide") {
+                            if (part.state === "output-available" && part.input) {
+                              return <GuideCard key={i} input={part.input} />;
+                            }
+                            if (part.state === "output-error") {
+                              return <ToolCallCard key={i} part={part} />;
+                            }
+                            return (
+                              <p key={i} className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="size-3.5 animate-spin" />
+                                Preparing visual guide…
+                              </p>
+                            );
+                          }
                           return <ToolCallCard key={i} part={part} />;
                         }
                         return null;

@@ -153,6 +153,9 @@ export async function POST(req: Request) {
 
   const e2bKey = await getE2BKey().catch(() => null);
 
+  systemPrompt +=
+    "\n\nVisual guides: when your answer describes a structure, architecture, process, comparison, or step-by-step overview, call the show_guide tool to present it as visual cards with flow arrows (ChatGPT-style diagram), then summarize briefly in text. Do not repeat the whole guide as a long plain-text list.";
+
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
     gemini: "gemini-2.5-flash",
@@ -282,6 +285,48 @@ export async function POST(req: Request) {
             }),
           }
         : {}),
+      show_guide: tool({
+        description:
+          "Display a visual structured guide/diagram to the user: a title plus cards connected by flow arrows, optionally side-by-side in a row. Each card has an icon name, title, optional badge, short lines and an optional muted footnote. Use for architectures, processes, comparisons and step-by-step overviews instead of long plain-text lists. After calling it, add only a brief text summary.",
+        inputSchema: z.object({
+          title: z.string().describe("Guide heading, e.g. 'Architecture overview'"),
+          blocks: z
+            .array(
+              z.object({
+                kind: z.enum(["card", "row"]),
+                icon: z
+                  .string()
+                  .optional()
+                  .describe("For kind=card — one of: github, monitor, server, database, globe, shield, zap, layers, box, cloud, phone, code, chart, wallet, bot, key, mail, bell"),
+                title: z.string().optional(),
+                badge: z.string().optional(),
+                badgeTone: z.enum(["green", "violet", "gray", "red", "amber"]).optional(),
+                lines: z.array(z.string()).max(5).optional(),
+                muted: z.string().optional().describe("Small muted footnote line"),
+                cards: z
+                  .array(
+                    z.object({
+                      icon: z.string().optional(),
+                      title: z.string(),
+                      badge: z.string().optional(),
+                      badgeTone: z.enum(["green", "violet", "gray", "red", "amber"]).optional(),
+                      lines: z.array(z.string()).max(5).optional(),
+                      muted: z.string().optional(),
+                    })
+                  )
+                  .max(3)
+                  .optional()
+                  .describe("For kind=row: 2–3 cards side by side"),
+              })
+            )
+            .min(1)
+            .max(8),
+        }),
+        execute: async () => ({
+          ok: true,
+          note: "Guide displayed to the user. Now give a brief text summary only — do not repeat the guide content.",
+        }),
+      }),
     };
     // Web search per provider: Groq browser search / Google search grounding.
     // Guarded: if the provider build doesn't expose it, chat simply has no web search.
