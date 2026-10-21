@@ -21,6 +21,15 @@ import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
 import { browsePage, browserOpen, browserAct, browserClose, getCachedScreenshot } from "@/lib/agent/browser";
+import {
+  createSite,
+  writeSiteFile,
+  listSiteFiles,
+  readSiteFile,
+  resolveSite,
+  deploySite,
+  SITE_APEX,
+} from "@/lib/agent/sites";
 
 export const maxDuration = 60;
 
@@ -162,6 +171,11 @@ export async function POST(req: Request) {
       "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL.";
   }
 
+  systemPrompt +=
+    "\n\nWebsite builder: you can build frontend-only Next.js websites. Workflow: create_site (seeds a fixed scaffold — Next.js App Router, JavaScript/JSX, Tailwind) → write a real app/page.jsx plus any components with write_site_file (pages in app/, components in components/, mock data in lib/; NO API routes, server actions or databases — frontend only) → deploy_site with target=preview and share the preview URL. Edit by rewriting files and deploying preview again. Only deploy target=production when the user explicitly says publish / go live — that publishes to https://<slug>." +
+    SITE_APEX +
+    ". Never try to write package.json or config files; the scaffold owns them. Refer to sites by slug.";
+
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
     gemini: "gemini-2.5-flash",
@@ -290,6 +304,122 @@ export async function POST(req: Request) {
             return { ok: true, name, download: f.path };
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not create file" };
+          }
+        },
+      }),
+      create_site: tool({
+        description:
+          "Create a new frontend-only Next.js website (fixed scaffold: App Router, JavaScript/JSX, Tailwind). The slug becomes its subdomain <slug>." +
+          SITE_APEX +
+          ". After creating, write a real app/page.jsx (and components) with write_site_file, then deploy a preview.",
+        inputSchema: z.object({
+          name: z.string().describe("Site name, e.g. 'Al Khair Bakery'"),
+          slug: z
+            .string()
+            .optional()
+            .describe("Subdomain slug (lowercase, hyphens). Defaults to a slugified name."),
+        }),
+        execute: async ({ name, slug }) => {
+          try {
+            const { site, fileCount } = await createSite(name, slug);
+            return {
+              ok: true,
+              site: site.slug,
+              name: site.name,
+              liveUrl: `https://${site.slug}.${SITE_APEX}`,
+              scaffoldFiles: fileCount,
+              note: "Scaffold ready. Now write the real pages with write_site_file, then deploy_site target=preview.",
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not create site" };
+          }
+        },
+      }),
+      write_site_file: tool({
+        description:
+          "Create or overwrite one file of a website (by slug). Pages: app/page.jsx, app/<route>/page.jsx. Components: components/*.jsx. Mock data: lib/*.js. Styles beyond Tailwind: components only — app/globals.css and configs are scaffold-owned. Frontend only: no API routes or server code.",
+        inputSchema: z.object({
+          site: z.string().describe("Site slug"),
+          path: z.string().describe("e.g. app/page.jsx"),
+          content: z.string().describe("Full file content"),
+        }),
+        execute: async ({ site, path, content }) => {
+          try {
+            const s = await resolveSite(site);
+            if (!s) return { ok: false, error: `Site "${site}" not found` };
+            const r = await writeSiteFile(s.id, path, content);
+            return { ok: true, site: s.slug, ...r };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not write file" };
+          }
+        },
+      }),
+      list_site_files: tool({
+        description: "List all files of a website (by slug) with sizes.",
+        inputSchema: z.object({ site: z.string() }),
+        execute: async ({ site }) => {
+          try {
+            const s = await resolveSite(site);
+            if (!s) return { ok: false, error: `Site "${site}" not found` };
+            const files = await listSiteFiles(s.id);
+            return { ok: true, site: s.slug, files };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not list files" };
+          }
+        },
+      }),
+      read_site_file: tool({
+        description: "Read one file of a website (by slug) — use before editing it.",
+        inputSchema: z.object({ site: z.string(), path: z.string() }),
+        execute: async ({ site, path }) => {
+          try {
+            const s = await resolveSite(site);
+            if (!s) return { ok: false, error: `Site "${site}" not found` };
+            const content = await readSiteFile(s.id, path);
+            if (content === null) return { ok: false, error: `No file ${path} in site ${s.slug}` };
+            return { ok: true, site: s.slug, path, content: content.slice(0, 12000) };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not read file" };
+          }
+        },
+      }),
+      deploy_site: tool({
+        description:
+          "Deploy a website (by slug) to Vercel. target=preview returns a live preview URL to share. target=production publishes it to https://<slug>." +
+          SITE_APEX +
+          " — only when the user explicitly says publish/go live. Builds can take 1–4 minutes.",
+        inputSchema: z.object({
+          site: z.string().describe("Site slug"),
+          target: z.enum(["preview", "production"]).default("preview"),
+        }),
+        execute: async ({ site, target }) => {
+          try {
+            return await deploySite(site, target);
+          } catch (e: any) {
+            return { ok: false, target, error: e?.message || "Deploy failed" };
+          }
+        },
+      }),
+      site_status: tool({
+        description: "Get a website's status: name, slug, preview URL, live URL, file count.",
+        inputSchema: z.object({ site: z.string() }),
+        execute: async ({ site }) => {
+          try {
+            const s = await resolveSite(site);
+            if (!s) return { ok: false, error: `Site "${site}" not found` };
+            const files = await listSiteFiles(s.id);
+            return {
+              ok: true,
+              name: s.name,
+              slug: s.slug,
+              status: s.status,
+              previewUrl: s.preview_url,
+              liveUrl: s.live_url,
+              fileCount: files.length,
+              updatedAt: s.updated_at,
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not read site" };
           }
         },
       }),
