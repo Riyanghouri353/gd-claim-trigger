@@ -2,6 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export default function SetupForm() {
   const router = useRouter();
@@ -31,34 +42,46 @@ export default function SetupForm() {
   }
 
   return (
-    <form onSubmit={submit} className="w-full max-w-sm space-y-4">
-      <h1 className="text-2xl font-bold">Welcome to Riyan Agent</h1>
-      <p className="text-sm text-zinc-400">
-        First run: set the password you'll use to log in from now on.
-      </p>
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="New password (min 8 chars)"
-        autoFocus
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 outline-none focus:border-indigo-500"
-      />
-      <input
-        type="password"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-        placeholder="Confirm password"
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 outline-none focus:border-indigo-500"
-      />
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy || !password}
-        className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 font-medium hover:bg-indigo-500 disabled:opacity-50"
-      >
-        {busy ? "Saving…" : "Set password"}
-      </button>
-    </form>
+    <Card className="w-full max-w-sm">
+      <CardHeader className="text-center">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-lg shadow-primary/20">
+          <Sparkles className="size-6" />
+        </div>
+        <CardTitle className="mt-2 text-xl">Welcome to Riyan Agent</CardTitle>
+        <CardDescription>
+          First run: set the password you'll use to log in from now on.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="setup-password">New password</Label>
+            <Input
+              id="setup-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Min 8 characters"
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="setup-confirm">Confirm password</Label>
+            <Input
+              id="setup-confirm"
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Confirm password"
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" disabled={busy || !password} className="w-full">
+            {busy && <Loader2 className="animate-spin" />}
+            {busy ? "Saving…" : "Set password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
