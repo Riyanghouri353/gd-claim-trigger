@@ -159,7 +159,7 @@ export async function POST(req: Request) {
 
   if (e2bKey) {
     systemPrompt +=
-      "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. Inside the interactive browser, navigate by clicking the address bar (or press ctrl+l), typing the URL, and pressing enter.";
+      "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL.";
   }
 
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
@@ -351,9 +351,10 @@ export async function POST(req: Request) {
             }),
             browser_act: tool({
               description:
-                "Perform one action in the interactive browser session and get a fresh screenshot: click (pixel x,y on the screenshot), type (text at the focused element — click a field first), press (a key or combo like 'enter', 'ctrl+l', 'tab', 'pagedown'), scroll, or screenshot (just look again).",
+                "Perform one action in the interactive browser session and get a fresh screenshot: navigate (go to a URL), click (pixel x,y on the screenshot), type (text at the focused element — click a field first), press (a key or combo like 'enter', 'ctrl+l', 'tab', 'pagedown'), scroll, or screenshot (just look again).",
               inputSchema: z.object({
-                action: z.enum(["click", "type", "press", "scroll", "screenshot"]),
+                action: z.enum(["navigate", "click", "type", "press", "scroll", "screenshot"]),
+                url: z.string().optional().describe("For navigate: the full http(s) URL"),
                 x: z.number().optional().describe("For click: horizontal pixel"),
                 y: z.number().optional().describe("For click: vertical pixel"),
                 text: z.string().optional().describe("For type: the text to type"),
@@ -363,9 +364,10 @@ export async function POST(req: Request) {
                   .describe("For press: e.g. 'enter', 'escape', 'tab', 'ctrl+l', 'ctrl+a'"),
                 direction: z.enum(["up", "down"]).optional().describe("For scroll"),
               }),
-              execute: async ({ action, x, y, text, key, direction }) => {
+              execute: async ({ action, url, x, y, text, key, direction }) => {
                 try {
                   return await browserAct(e2bKey, conversationId, action, {
+                    url,
                     x,
                     y,
                     text,

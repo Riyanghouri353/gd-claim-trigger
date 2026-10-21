@@ -107,6 +107,58 @@ async function currentTitle(session: BrowserSession): Promise<string> {
   return "";
 }
 
+/** Poll until a Chrome window exists (up to ~12s). */
+async function waitForChromeWindow(session: BrowserSession): Promise<boolean> {
+  for (let i = 0; i < 12; i++) {
+    try {
+      const wins = await session.desktop.getApplicationWindows("google-chrome");
+      if (wins && wins.length > 0) return true;
+    } catch {
+      /* not up yet */
+    }
+    await wait(1000);
+  }
+  return false;
+}
+
+/**
+ * Navigate the desktop's Chrome to a URL, deterministically.
+ * launch(app, uri) proved unreliable (Chrome opened with no tab), so:
+ * start Chrome from the shell with first-run suppressed + the URL, wait
+ * for its window, then force the address bar to the URL regardless of
+ * what tab state Chrome chose.
+ */
+async function chromeGoto(session: BrowserSession, url: string): Promise<void> {
+  try {
+    await session.desktop.commands.run(
+      `google-chrome --no-first-run --no-default-browser-check --start-maximized ${shellQuote(url)} >/dev/null 2>&1`,
+      { background: true }
+    );
+  } catch {
+    try {
+      await session.desktop.launch("google-chrome", url);
+    } catch {
+      await session.desktop.open(url);
+    }
+  }
+  const up = await waitForChromeWindow(session);
+  if (!up) {
+    // Last resort: xdg-open through the desktop's default-browser handling
+    await session.desktop.open(url).catch(() => {});
+    await waitForChromeWindow(session);
+  }
+  // Force the visible tab onto the URL via the address bar
+  try {
+    await session.desktop.press(["ctrl", "l"]);
+    await session.desktop.write(url);
+    await session.desktop.press("enter");
+  } catch {
+    /* the launch argument may already have navigated */
+  }
+  await wait(3000);
+  session.currentUrl = url;
+}
+
 export interface BrowseResult {
   ok: boolean;
   url?: string;
@@ -177,26 +229,7 @@ export async function browserOpen(
 ): Promise<BrowseResult> {
   const url = assertHttpUrl(rawUrl).toString();
   const session = await getSession(keyOf(conversationId), apiKey);
-  try {
-    await session.desktop.launch("google-chrome", url);
-  } catch {
-    await session.desktop.open(url);
-  }
-  session.currentUrl = url;
-
-  // Wait until a Chrome window actually exists (up to ~12s) — screenshotting
-  // immediately catches the bare desktop (window title "Xfwm4") instead of
-  // the page. Then give the page a moment to render.
-  for (let i = 0; i < 12; i++) {
-    await wait(1000);
-    try {
-      const wins = await session.desktop.getApplicationWindows("google-chrome");
-      if (wins && wins.length > 0) break;
-    } catch {
-      /* not up yet */
-    }
-  }
-  await wait(2500);
+  await chromeGoto(session, url);
 
   if (!session.streamUrl) {
     try {
@@ -226,8 +259,8 @@ export async function browserOpen(
 export async function browserAct(
   apiKey: string,
   conversationId: string | null,
-  action: "click" | "type" | "press" | "scroll" | "screenshot",
-  opts: { x?: number; y?: number; text?: string; key?: string; direction?: string }
+  action: "navigate" | "click" | "type" | "press" | "scroll" | "screenshot",
+  opts: { url?: string; x?: number; y?: number; text?: string; key?: string; direction?: string }
 ): Promise<BrowseResult> {
   const key = keyOf(conversationId);
   const session = sessions.get(key);
@@ -238,6 +271,12 @@ export async function browserAct(
   await session.desktop.setTimeout(SESSION_TTL_MS).catch(() => {});
 
   switch (action) {
+    case "navigate": {
+      if (!opts.url) return { ok: false, error: "navigate needs a url" };
+      const target = assertHttpUrl(opts.url).toString();
+      await chromeGoto(session, target);
+      break;
+    }
     case "click":
       if (typeof opts.x !== "number" || typeof opts.y !== "number") {
         return { ok: false, error: "click needs x and y coordinates" };
