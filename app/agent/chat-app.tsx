@@ -6,7 +6,38 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import styles from "./agent-theme.module.css";
+import {
+  ArrowUp,
+  Brain,
+  ChevronDown,
+  Code2,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Paperclip,
+  RotateCcw,
+  Search,
+  Settings,
+  ShieldAlert,
+  Sparkles,
+  SquarePen,
+  Trash2,
+  TrendingUp,
+  Wrench,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 interface Conversation {
   id: string;
@@ -31,24 +62,6 @@ const mdComponents = {
   ),
 };
 
-/** Tiny inline SVG icon (lucide-style strokes). */
-function I({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
-
 /** A pending chat attachment: vision file (data URL) or inlined text file. */
 type Attachment =
   | { kind: "file"; name: string; mediaType: string; url: string }
@@ -72,7 +85,7 @@ function friendlyError(msg: string): string {
   if (m.includes("network error") || m.includes("failed to fetch") || m.includes("load failed"))
     return "Network error — your connection dropped. Check your signal and hit Retry.";
   if (m.includes("rate limit") || m.includes("429") || m.includes("too many"))
-    return "Groq rate limit hit — too much too fast. Wait a few seconds, then hit Retry; your keys rotate automatically.";
+    return "Rate limit hit — too much too fast. Wait a few seconds, then hit Retry; your keys rotate automatically.";
   if (m.includes("keys failed") || m.includes("502") || m.includes("no active"))
     return "All API keys failed or none are configured. Check Settings → Keys.";
   return `Something went wrong: ${msg}`;
@@ -115,53 +128,43 @@ function ToolCallCard({ part }: { part: any }) {
     : input;
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-[var(--ag-border)] bg-black/25">
+    <div className="mt-2 overflow-hidden rounded-xl border bg-muted/60">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
         aria-expanded={open}
       >
-        <span className="text-xs">🔧</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-[var(--ag-muted)]">
+        <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {running ? (
-            <>Calling {isConnector ? <b>{input.connector || name}</b> : <b>{name}</b>}…</>
+            <>Calling <b className="text-foreground">{isConnector ? input.connector || name : name}</b>…</>
           ) : (
             <>
-              Used {isConnector ? <b>{input.connector || name}</b> : <b>{name}</b>}{" "}
+              Used <b className="text-foreground">{isConnector ? input.connector || name : name}</b>{" "}
               {failed ? "✗" : "✓"}
             </>
           )}
         </span>
         {done && output && typeof output.status === "number" && (
-          <span
-            className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
-              output.ok
-                ? "bg-[var(--ag-accent-soft)] text-[var(--ag-accent-text)]"
-                : "bg-[var(--ag-danger-soft)] text-[var(--ag-danger)]"
-            }`}
-          >
-            {output.status}
-          </span>
+          <Badge variant={output.ok ? "success" : "destructive"}>{output.status}</Badge>
         )}
-        <span
-          className={`text-[var(--ag-faint)] transition-transform ${open ? "rotate-180" : ""}`}
-        >
-          ▾
-        </span>
+        <ChevronDown
+          className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
       </button>
       {open && (
-        <div className="border-t border-[var(--ag-border)] px-3 py-2.5">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ag-faint)]">
+        <div className="border-t px-3 py-2.5">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Request
           </p>
-          <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2.5 text-[11px] leading-relaxed text-[var(--ag-muted)]">
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
             {prettyJson(requestView)}
           </pre>
-          <p className="mb-1 mt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ag-faint)]">
+          <p className="mb-1 mt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Response
           </p>
           {done && output ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2.5 text-[11px] leading-relaxed text-[var(--ag-muted)]">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
               {typeof output.body === "string"
                 ? `HTTP ${output.status}\n${prettyJson(output.body)}${
                     output.truncated ? "\n…(truncated)" : ""
@@ -169,7 +172,7 @@ function ToolCallCard({ part }: { part: any }) {
                 : prettyJson(output)}
             </pre>
           ) : (
-            <p className="text-[11px] text-[var(--ag-faint)]">
+            <p className="text-[11px] text-muted-foreground">
               {failed ? part.errorText || "Tool failed" : "Waiting for response…"}
             </p>
           )}
@@ -194,6 +197,13 @@ function dayBucket(iso: string): string {
 
 const GROUP_ORDER = ["Today", "Yesterday", "Previous 7 days", "Older"];
 
+const SUGGESTIONS = [
+  { icon: TrendingUp, label: "Today's crypto market news", prompt: "Give me today's top crypto market news in a concise briefing" },
+  { icon: ShieldAlert, label: "How to spot a crypto scam", prompt: "Explain how to spot a crypto scam — the red flags to check before investing" },
+  { icon: Code2, label: "Run code: compound interest", prompt: "Run Python code to calculate compound interest on Rs 100,000 at 12% for 5 years, year by year" },
+  { icon: Brain, label: "What do you remember about me?", prompt: "What do you remember about me from past conversations?" },
+];
+
 export default function ChatApp() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -202,6 +212,7 @@ export default function ChatApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const cidRef = useRef<string | null>(null);
   const [, forceRender] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -277,22 +288,17 @@ export default function ChatApp() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if ((!text && attachments.length === 0) || busy) return;
-    const files = attachments
+  async function submitText(text: string, atts: Attachment[]) {
+    const files = atts
       .filter((a): a is Extract<Attachment, { kind: "file" }> => a.kind === "file")
       .map((a) => ({ type: "file" as const, mediaType: a.mediaType, filename: a.name, url: a.url }));
     let fullText = text;
-    for (const a of attachments) {
+    for (const a of atts) {
       if (a.kind === "text") {
         fullText += `\n\n[Attached file: ${a.name}]\n\`\`\`\n${a.text.slice(0, 20000)}\n\`\`\``;
       }
     }
     if (!fullText.trim()) fullText = "Please review the attached file(s).";
-    setInput("");
-    setAttachments([]);
     if (!cidRef.current) {
       const res = await fetch("/api/agent/conversations", { method: "POST" });
       if (!res.ok) return;
@@ -303,8 +309,17 @@ export default function ChatApp() {
     sendMessage(files.length ? { text: fullText, files } : { text: fullText });
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if ((!text && attachments.length === 0) || busy) return;
+    setInput("");
+    const atts = attachments;
+    setAttachments([]);
+    await submitText(text, atts);
+  }
+
   async function deleteConversation(id: string) {
-    if (!confirm("Delete this chat?")) return;
     await fetch(`/api/agent/conversations/${id}`, { method: "DELETE" });
     if (cidRef.current === id) {
       setConversation(null);
@@ -339,9 +354,10 @@ export default function ChatApp() {
   }, [conversations, search]);
 
   const activeId = cidRef.current;
+  const canSend = !busy && (!!input.trim() || attachments.length > 0);
 
   return (
-    <div className={`${styles.theme} flex h-screen overflow-hidden bg-[var(--ag-bg)] text-[var(--ag-text)]`}>
+    <div className="flex h-dvh overflow-hidden">
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
@@ -352,86 +368,84 @@ export default function ChatApp() {
 
       {/* Sidebar — drawer on mobile, fixed on desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[280px] shrink-0 flex-col border-r border-[var(--ag-border)] bg-[var(--ag-sidebar)] transition-transform duration-200 md:static md:w-72 md:translate-x-0 ${
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 flex w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 md:static md:w-72 md:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        )}
       >
         {/* Brand */}
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--ag-border)] px-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--ag-accent)] to-[var(--ag-accent-deep)] text-white shadow-lg shadow-black/40">
-            <I className="h-[18px] w-[18px]"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" /></I>
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-lg shadow-black/40">
+            <Sparkles className="size-[18px]" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold tracking-tight text-[var(--ag-text)]">
-              Riyan Agent
-            </p>
-            <p className="flex items-center gap-1.5 text-[11px] text-[var(--ag-muted)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ag-online)]" />
+            <p className="truncate text-sm font-semibold tracking-tight">Riyan Agent</p>
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-emerald-400" />
               Ready
             </p>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setSidebarOpen(false)}
-            className="rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)] md:hidden"
+            className="md:hidden"
             aria-label="Close menu"
           >
-            <I className="h-4 w-4"><path d="M18 6 6 18M6 6l12 12" /></I>
-          </button>
+            <X className="size-4" />
+          </Button>
         </div>
 
         {/* Actions */}
         <div className="shrink-0 space-y-2 px-3 pt-3">
-          <button
-            onClick={newChat}
-            className="flex h-10 w-full items-center gap-2.5 rounded-xl bg-[var(--ag-accent)] px-3.5 text-sm font-medium text-white shadow-md shadow-black/40 transition hover:bg-[var(--ag-accent-hover)] active:scale-[0.99]"
-          >
-            <I className="h-4 w-4"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></I>
+          <Button onClick={newChat} className="w-full justify-start">
+            <SquarePen />
             New chat
-          </button>
-          <label className="flex h-9 items-center gap-2 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 text-sm transition focus-within:border-[var(--ag-accent)]">
-            <I className="h-4 w-4 shrink-0 text-[var(--ag-faint)]"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></I>
-            <input
+          </Button>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search chats"
               aria-label="Search chats"
-              className="w-full min-w-0 bg-transparent text-[var(--ag-text)] placeholder:text-[var(--ag-faint)] focus:outline-none"
+              className="pl-9"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
-                className="shrink-0 rounded-md p-0.5 text-[var(--ag-faint)] transition-colors hover:text-[var(--ag-text)]"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                 aria-label="Clear search"
               >
-                <I className="h-3.5 w-3.5"><path d="M18 6 6 18M6 6l12 12" /></I>
+                <X className="size-3.5" />
               </button>
             )}
-          </label>
+          </div>
         </div>
 
         {/* Conversations */}
-        <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {groups.length === 0 && !search && (
             <div className="flex flex-col items-center px-6 py-10 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--ag-border)] bg-[var(--ag-surface)] text-[var(--ag-faint)]">
-                <I className="h-5 w-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></I>
+              <div className="flex size-11 items-center justify-center rounded-2xl border bg-card text-muted-foreground">
+                <MessageSquare className="size-5" />
               </div>
-              <p className="mt-3 text-sm font-medium text-[var(--ag-muted)]">
+              <p className="mt-3 text-sm font-medium text-muted-foreground">
                 No conversations yet
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--ag-faint)]">
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground/70">
                 Start a new chat above — your history will appear here.
               </p>
             </div>
           )}
           {groups.length === 0 && search && (
-            <p className="px-2 py-10 text-center text-xs leading-relaxed text-[var(--ag-faint)]">
+            <p className="px-2 py-10 text-center text-xs leading-relaxed text-muted-foreground">
               No chats match “{search.trim()}”.
             </p>
           )}
           {groups.map((g) => (
             <div key={g.label} className="mb-4 last:mb-0">
-              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ag-faint)]">
+              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
                 {g.label}
               </p>
               <ul className="space-y-0.5">
@@ -441,43 +455,42 @@ export default function ChatApp() {
                   return (
                     <li key={c.id}>
                       <div
-                        className={`group relative flex items-center rounded-xl transition-colors ${
-                          active ? "bg-[var(--ag-active)]" : "hover:bg-[var(--ag-surface)]"
-                        }`}
+                        className={cn(
+                          "group relative flex items-center rounded-lg transition-colors",
+                          active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60"
+                        )}
                       >
                         {active && (
-                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--ag-accent)]" />
+                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
                         )}
                         <button
                           onClick={() => openConversation(c.id)}
                           aria-current={active ? true : undefined}
                           title={title}
-                          className="flex min-w-0 flex-1 items-center gap-2.5 py-2.5 pl-3 pr-1 text-left"
+                          className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-3 pr-1 text-left"
                         >
-                          <I
-                            className={`h-4 w-4 shrink-0 ${
-                              active ? "text-[var(--ag-accent-text)]" : "text-[var(--ag-faint)]"
-                            }`}
-                          >
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                          </I>
+                          <MessageSquare
+                            className={cn(
+                              "size-4 shrink-0",
+                              active ? "text-primary" : "text-muted-foreground"
+                            )}
+                          />
                           <span
-                            className={`truncate text-sm ${
-                              active
-                                ? "font-medium text-[var(--ag-text)]"
-                                : "text-[var(--ag-muted)] group-hover:text-[var(--ag-text)]"
-                            }`}
+                            className={cn(
+                              "truncate text-sm",
+                              active ? "font-medium" : "text-muted-foreground group-hover:text-foreground"
+                            )}
                           >
                             {title}
                           </span>
                         </button>
                         <button
-                          onClick={() => deleteConversation(c.id)}
-                          className="mr-1.5 shrink-0 rounded-lg p-1.5 text-[var(--ag-faint)] transition-all hover:bg-[var(--ag-danger-soft)] hover:text-[var(--ag-danger)] focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                          onClick={() => setPendingDelete(c)}
+                          className="mr-1.5 shrink-0 rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
                           title="Delete chat"
                           aria-label={`Delete chat: ${title}`}
                         >
-                          <I className="h-4 w-4"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></I>
+                          <Trash2 className="size-4" />
                         </button>
                       </div>
                     </li>
@@ -489,40 +502,35 @@ export default function ChatApp() {
         </div>
 
         {/* Footer — profile row */}
-        <div className="shrink-0 border-t border-[var(--ag-border)] p-3">
+        <div className="shrink-0 border-t border-sidebar-border p-3">
           <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--ag-border)] bg-[var(--ag-surface-2)] text-sm font-semibold text-[var(--ag-text)]">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
               R
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-[var(--ag-text)]">Riyan</p>
-              <p className="truncate text-[11px] text-[var(--ag-muted)]">
+              <p className="truncate text-sm font-medium">Riyan</p>
+              <p className="truncate text-[11px] text-muted-foreground">
                 Personal workspace
               </p>
             </div>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => router.push("/agent/settings")}
-              className="shrink-0 rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)]"
               title="Settings & keys"
               aria-label="Settings & keys"
             >
-              <I className="h-[18px] w-[18px]">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </I>
-            </button>
-            <button
+              <Settings className="size-[18px]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={logout}
-              className="shrink-0 rounded-lg p-2 text-[var(--ag-faint)] transition-colors hover:bg-[var(--ag-surface-2)] hover:text-[var(--ag-text)]"
               title="Log out"
               aria-label="Log out"
             >
-              <I className="h-[18px] w-[18px]">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="m16 17 5-5-5-5" />
-                <path d="M21 12H9" />
-              </I>
-            </button>
+              <LogOut className="size-[18px]" />
+            </Button>
           </div>
         </div>
       </aside>
@@ -530,151 +538,231 @@ export default function ChatApp() {
       {/* Chat */}
       <main className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--ag-border)] px-2 py-2 md:hidden">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-lg p-2 text-[var(--ag-text)] hover:bg-[var(--ag-surface-2)]"
-            aria-label="Open menu"
-          >
-            <I className="h-5 w-5"><path d="M4 6h16M4 12h16M4 18h16" /></I>
-          </button>
+        <div className="flex shrink-0 items-center gap-2 border-b px-2 py-2 md:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+            <Menu className="size-5" />
+          </Button>
           <span className="truncate text-sm font-semibold">Riyan Agent</span>
         </div>
 
-        <div className="chat-scroll flex-1 overflow-y-auto px-4 py-6">
-          <div className="mx-auto max-w-3xl space-y-5">
+        <div className="flex-1 overflow-y-auto px-4 py-6">
+          <div className="mx-auto max-w-3xl space-y-6">
             {messages.length === 0 && (
-              <div className="pt-16 text-center md:pt-24">
-                <h1 className="text-2xl font-bold md:text-3xl">Riyan Agent</h1>
-                <p className="mt-2 text-sm text-[var(--ag-muted)] md:text-base">
-                  Ask anything. I can search the web when it helps.
+              <div className="pt-10 text-center md:pt-16">
+                <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-xl shadow-primary/20">
+                  <Sparkles className="size-7" />
+                </div>
+                <h1 className="mt-5 text-2xl font-bold tracking-tight md:text-3xl">
+                  How can I help today?
+                </h1>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground md:text-base">
+                  I remember, read links, run code, create files and call your connected APIs.
                 </p>
+                <div className="mx-auto mt-8 grid max-w-lg grid-cols-1 gap-2.5 text-left sm:grid-cols-2">
+                  {SUGGESTIONS.map((s) => (
+                    <button
+                      key={s.label}
+                      onClick={() => !busy && submitText(s.prompt, [])}
+                      className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/50 hover:bg-accent"
+                    >
+                      <s.icon className="size-4 shrink-0 text-primary" />
+                      <span className="min-w-0 truncate">{s.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((m) => (
-              <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[90%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed md:max-w-[85%] ${
-                    m.role === "user" ? "bg-[var(--ag-accent)] text-white" : "bg-[var(--ag-surface)] text-[var(--ag-text)]"
-                  }`}
-                >
-                  {m.parts.map((part: any, i: number) => {
-                    if (part.type === "file") {
-                      return part.mediaType?.startsWith("image/") && part.url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={i}
-                          src={part.url}
-                          alt={part.filename || "attachment"}
-                          className="mb-2 max-h-56 rounded-xl object-contain"
-                        />
-                      ) : (
-                        <p
-                          key={i}
-                          className="mb-2 inline-block rounded-lg bg-black/25 px-2.5 py-1.5 text-xs"
-                        >
-                          📎 {part.filename || "attachment"}
-                        </p>
-                      );
-                    }
-                    if (part.type === "text") {
-                      return m.role === "user" ? (
-                        <p key={i} className="whitespace-pre-wrap break-words">
-                          {part.text}
-                        </p>
-                      ) : (
-                        <div key={i} className={`${styles.md} break-words`}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                            {part.text}
-                          </ReactMarkdown>
-                        </div>
-                      );
-                    }
-                    if (typeof part.type === "string" && part.type.includes("tool")) {
-                      return <ToolCallCard key={i} part={part} />;
-                    }
-                    return null;
-                  })}
-                </div>
+              <div key={m.id}>
+                {m.role === "user" ? (
+                  <div className="flex justify-end">
+                    <div className="max-w-[90%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-[15px] leading-relaxed text-primary-foreground md:max-w-[85%]">
+                      {m.parts.map((part: any, i: number) => {
+                        if (part.type === "file") {
+                          return part.mediaType?.startsWith("image/") && part.url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={i}
+                              src={part.url}
+                              alt={part.filename || "attachment"}
+                              className="mb-2 max-h-56 rounded-xl object-contain"
+                            />
+                          ) : (
+                            <p
+                              key={i}
+                              className="mb-2 inline-flex items-center gap-1.5 rounded-lg bg-black/25 px-2.5 py-1.5 text-xs"
+                            >
+                              <Paperclip className="size-3" /> {part.filename || "attachment"}
+                            </p>
+                          );
+                        }
+                        if (part.type === "text") {
+                          return (
+                            <p key={i} className="whitespace-pre-wrap break-words">
+                              {part.text}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+                      <Sparkles className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1 pt-1 text-[15px] leading-relaxed">
+                      {m.parts.map((part: any, i: number) => {
+                        if (part.type === "text") {
+                          return (
+                            <div key={i} className="agent-md break-words">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                                {part.text}
+                              </ReactMarkdown>
+                            </div>
+                          );
+                        }
+                        if (typeof part.type === "string" && part.type.includes("tool")) {
+                          return <ToolCallCard key={i} part={part} />;
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             {busy && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl bg-[var(--ag-surface)] px-4 py-3 text-sm text-[var(--ag-muted)]">
-                  Thinking…
+              <div className="flex gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+                  <Sparkles className="size-4" />
+                </div>
+                <div className="flex items-center gap-1.5 pt-3" aria-label="Thinking">
+                  <span className="size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.2s]" />
+                  <span className="size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.1s]" />
+                  <span className="size-2 animate-bounce rounded-full bg-muted-foreground" />
                 </div>
               </div>
             )}
             {error && (
-              <div className="rounded-xl border border-[var(--ag-danger-border)] bg-[var(--ag-danger-bg)] p-4 text-sm">
-                <p className="text-[var(--ag-danger)]">{error ? friendlyError(error.message) : ""}</p>
-                <button
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
+                <p className="text-destructive">{error ? friendlyError(error.message) : ""}</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => regenerate()}
-                  className="mt-2 rounded-lg bg-[var(--ag-surface-2)] px-3 py-1.5 text-sm hover:bg-[var(--ag-active)]"
+                  className="mt-3"
                 >
-                  ↻ Retry
-                </button>
+                  <RotateCcw />
+                  Retry
+                </Button>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-[var(--ag-border)] p-3 md:p-4">
-          {attachments.length > 0 && (
-            <div className="mx-auto mb-2 flex max-w-3xl flex-wrap gap-2">
-              {attachments.map((a, i) => (
-                <span
-                  key={i}
-                  className="flex items-center gap-2 rounded-lg bg-[var(--ag-surface)] px-2.5 py-1.5 text-xs text-[var(--ag-text)]"
-                >
-                  📎 {a.name}
-                  <button
-                    type="button"
-                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-[var(--ag-faint)] hover:text-[var(--ag-text)]"
-                    aria-label={`Remove ${a.name}`}
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
+        {/* Composer */}
+        <div className="shrink-0 p-3 md:p-4">
+          <form
+            onSubmit={handleSubmit}
+            className="mx-auto max-w-3xl rounded-3xl border bg-card p-2 shadow-lg shadow-black/20 focus-within:border-primary/60"
+          >
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-2 pb-2 pt-1">
+                {attachments.map((a, i) => (
+                  <Badge key={i} variant="secondary" className="gap-1.5 py-1 pl-2.5 pr-1.5 text-xs">
+                    <Paperclip className="size-3" />
+                    <span className="max-w-40 truncate">{a.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      className="rounded-full p-0.5 hover:bg-white/10"
+                      aria-label={`Remove ${a.name}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <div className="flex items-end gap-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.txt,.md,.csv,.json,.log,.js,.ts,.tsx,.py,.html,.css,.xml,.yml,.yaml"
+                className="hidden"
+                onChange={(e) => handleFilesSelected(e.target.files)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                className="shrink-0 rounded-full"
+                aria-label="Attach files"
+                title="Attach image or file"
+              >
+                <Paperclip className="size-5" />
+              </Button>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+                  }
+                }}
+                placeholder="Message Riyan Agent…"
+                rows={1}
+                className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-[15px] outline-none placeholder:text-muted-foreground"
+              />
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!canSend}
+                className="shrink-0 rounded-full"
+                aria-label="Send message"
+              >
+                <ArrowUp className="size-5" />
+              </Button>
             </div>
-          )}
-          <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.txt,.md,.csv,.json,.log,.js,.ts,.tsx,.py,.html,.css,.xml,.yml,.yaml"
-              className="hidden"
-              onChange={(e) => handleFilesSelected(e.target.files)}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-3 text-[var(--ag-muted)] hover:text-[var(--ag-text)]"
-              aria-label="Attach files"
-              title="Attach image or file"
-            >
-              📎
-            </button>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Message Riyan Agent…"
-              className="min-w-0 flex-1 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-4 py-3 outline-none placeholder:text-[var(--ag-faint)] focus:border-[var(--ag-accent)]"
-            />
-            <button
-              type="submit"
-              disabled={busy || (!input.trim() && attachments.length === 0)}
-              className="shrink-0 rounded-xl bg-[var(--ag-accent)] px-4 py-3 font-medium text-white hover:bg-[var(--ag-accent-hover)] disabled:opacity-50 md:px-5"
-            >
-              Send
-            </button>
           </form>
+          <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-muted-foreground/70">
+            Riyan Agent can make mistakes. Verify important information.
+          </p>
         </div>
       </main>
+
+      {/* Delete conversation confirmation */}
+      <Dialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this chat?</DialogTitle>
+            <DialogDescription>
+              “{pendingDelete?.title || "New chat"}” and all its messages will be permanently
+              deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) deleteConversation(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
