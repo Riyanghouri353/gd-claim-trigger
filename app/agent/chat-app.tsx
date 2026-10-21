@@ -49,6 +49,23 @@ function I({ children, className }: { children: React.ReactNode; className?: str
   );
 }
 
+/** A pending chat attachment: vision file (data URL) or inlined text file. */
+type Attachment =
+  | { kind: "file"; name: string; mediaType: string; url: string }
+  | { kind: "text"; name: string; text: string };
+
+function readFileAs(f: File, mode: "dataURL" | "text"): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    if (mode === "dataURL") r.readAsDataURL(f);
+    else r.readAsText(f);
+  });
+}
+
+const TEXT_FILE_RE = /\.(txt|md|csv|json|log|js|ts|tsx|py|html|css|xml|yml|yaml)$/i;
+
 /** Turn a raw chat error into something a human can act on. */
 function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
@@ -181,6 +198,8 @@ export default function ChatApp() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [search, setSearch] = useState("");
   const cidRef = useRef<string | null>(null);
@@ -238,11 +257,42 @@ export default function ChatApp() {
     setSidebarOpen(false);
   }
 
+  async function handleFilesSelected(list: FileList | null) {
+    if (!list) return;
+    const next: Attachment[] = [];
+    for (const f of Array.from(list).slice(0, 4)) {
+      if (f.size > 4 * 1024 * 1024) {
+        alert(`"${f.name}" is too large (max 4 MB).`);
+        continue;
+      }
+      try {
+        if (f.type.startsWith("text/") || TEXT_FILE_RE.test(f.name)) {
+          next.push({ kind: "text", name: f.name, text: await readFileAs(f, "text") });
+        } else {
+          next.push({ kind: "file", name: f.name, mediaType: f.type || "application/octet-stream", url: await readFileAs(f, "dataURL") });
+        }
+      } catch { /* unreadable file — skip */ }
+    }
+    setAttachments((a) => [...a, ...next].slice(0, 4));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
+    const files = attachments
+      .filter((a): a is Extract<Attachment, { kind: "file" }> => a.kind === "file")
+      .map((a) => ({ type: "file" as const, mediaType: a.mediaType, filename: a.name, url: a.url }));
+    let fullText = text;
+    for (const a of attachments) {
+      if (a.kind === "text") {
+        fullText += `\n\n[Attached file: ${a.name}]\n\`\`\`\n${a.text.slice(0, 20000)}\n\`\`\``;
+      }
+    }
+    if (!fullText.trim()) fullText = "Please review the attached file(s).";
     setInput("");
+    setAttachments([]);
     if (!cidRef.current) {
       const res = await fetch("/api/agent/conversations", { method: "POST" });
       if (!res.ok) return;
@@ -250,7 +300,7 @@ export default function ChatApp() {
       setConversation(j.id);
       refreshList();
     }
-    sendMessage({ text });
+    sendMessage(files.length ? { text: fullText, files } : { text: fullText });
   }
 
   async function deleteConversation(id: string) {
@@ -509,6 +559,24 @@ export default function ChatApp() {
                   }`}
                 >
                   {m.parts.map((part: any, i: number) => {
+                    if (part.type === "file") {
+                      return part.mediaType?.startsWith("image/") && part.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={i}
+                          src={part.url}
+                          alt={part.filename || "attachment"}
+                          className="mb-2 max-h-56 rounded-xl object-contain"
+                        />
+                      ) : (
+                        <p
+                          key={i}
+                          className="mb-2 inline-block rounded-lg bg-black/25 px-2.5 py-1.5 text-xs"
+                        >
+                          📎 {part.filename || "attachment"}
+                        </p>
+                      );
+                    }
                     if (part.type === "text") {
                       return m.role === "user" ? (
                         <p key={i} className="whitespace-pre-wrap break-words">
@@ -553,7 +621,44 @@ export default function ChatApp() {
         </div>
 
         <div className="shrink-0 border-t border-[var(--ag-border)] p-3 md:p-4">
+          {attachments.length > 0 && (
+            <div className="mx-auto mb-2 flex max-w-3xl flex-wrap gap-2">
+              {attachments.map((a, i) => (
+                <span
+                  key={i}
+                  className="flex items-center gap-2 rounded-lg bg-[var(--ag-surface)] px-2.5 py-1.5 text-xs text-[var(--ag-text)]"
+                >
+                  📎 {a.name}
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-[var(--ag-faint)] hover:text-[var(--ag-text)]"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.txt,.md,.csv,.json,.log,.js,.ts,.tsx,.py,.html,.css,.xml,.yml,.yaml"
+              className="hidden"
+              onChange={(e) => handleFilesSelected(e.target.files)}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 rounded-xl border border-[var(--ag-border)] bg-[var(--ag-surface)] px-3 py-3 text-[var(--ag-muted)] hover:text-[var(--ag-text)]"
+              aria-label="Attach files"
+              title="Attach image or file"
+            >
+              📎
+            </button>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -562,7 +667,7 @@ export default function ChatApp() {
             />
             <button
               type="submit"
-              disabled={busy || !input.trim()}
+              disabled={busy || (!input.trim() && attachments.length === 0)}
               className="shrink-0 rounded-xl bg-[var(--ag-accent)] px-4 py-3 font-medium text-white hover:bg-[var(--ag-accent-hover)] disabled:opacity-50 md:px-5"
             >
               Send

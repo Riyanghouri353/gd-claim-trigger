@@ -60,6 +60,13 @@ export default function SettingsClient() {
   const [lKeyValue, setLKeyValue] = useState("");
   const [lBusy, setLBusy] = useState(false);
   const [lMsg, setLMsg] = useState("");
+  const [memories, setMemories] = useState<{ id: string; content: string; created_at: string }[]>([]);
+  const [newMemory, setNewMemory] = useState("");
+  const [memMsg, setMemMsg] = useState("");
+  const [e2bConfigured, setE2bConfigured] = useState(false);
+  const [e2bKeyValue, setE2bKeyValue] = useState("");
+  const [e2bBusy, setE2bBusy] = useState(false);
+  const [e2bMsg, setE2bMsg] = useState("");
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
   const [cName, setCName] = useState("");
   const [cBaseUrl, setCBaseUrl] = useState("");
@@ -74,16 +81,20 @@ export default function SettingsClient() {
   const [dNote, setDNote] = useState("");
 
   async function load() {
-    const [kr, gkr, lkr, sr, cr] = await Promise.all([
+    const [kr, gkr, lkr, sr, cr, mr, er] = await Promise.all([
       fetch("/api/agent/keys"),
       fetch("/api/agent/gemini-keys"),
       fetch("/api/agent/lovable-keys"),
       fetch("/api/agent/settings"),
       fetch("/api/agent/connectors"),
+      fetch("/api/agent/memories"),
+      fetch("/api/agent/e2b-key"),
     ]);
     if (kr.ok) setKeys((await kr.json()).keys ?? []);
     if (gkr.ok) setGKeys((await gkr.json()).keys ?? []);
     if (lkr.ok) setLKeys((await lkr.json()).keys ?? []);
+    if (mr.ok) setMemories((await mr.json()).memories ?? []);
+    if (er.ok) setE2bConfigured(!!(await er.json()).configured);
     if (cr.ok) setConnectors((await cr.json()).connectors ?? []);
     if (sr.ok) {
       const j = await sr.json();
@@ -198,6 +209,55 @@ export default function SettingsClient() {
     const res = await fetch(`/api/agent/lovable-keys/${id}/test`, { method: "POST" });
     const j = await res.json();
     setLMsg(j.ok ? "✅ Key works" : "❌ " + (j.error || "Failed"));
+    load();
+  }
+
+  async function addMemoryManual(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newMemory.trim()) return;
+    const res = await fetch("/api/agent/memories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: newMemory.trim() }),
+    });
+    if (res.ok) {
+      setNewMemory("");
+      setMemMsg("✅ Memory saved");
+    } else {
+      setMemMsg("❌ Could not save");
+    }
+    load();
+  }
+
+  async function deleteMemoryUI(id: string) {
+    await fetch(`/api/agent/memories/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function saveE2BKey(e: React.FormEvent) {
+    e.preventDefault();
+    setE2bBusy(true);
+    setE2bMsg("");
+    const res = await fetch("/api/agent/e2b-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: e2bKeyValue }),
+    });
+    const j = await res.json();
+    setE2bBusy(false);
+    if (!res.ok) {
+      setE2bMsg("❌ " + (j.error || "Failed"));
+      return;
+    }
+    setE2bKeyValue("");
+    setE2bMsg("✅ E2B key saved — code execution is on");
+    load();
+  }
+
+  async function removeE2BKey() {
+    if (!confirm("Remove the E2B key? Code execution will turn off.")) return;
+    await fetch("/api/agent/e2b-key", { method: "DELETE" });
+    setE2bMsg("E2B key removed");
     load();
   }
 
@@ -472,6 +532,87 @@ export default function SettingsClient() {
             {lBusy ? "Verifying…" : "Add key"}
           </button>
         </form>
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+        <h2 className="mb-3 text-lg font-semibold">Memory</h2>
+        <p className="mb-4 text-sm text-zinc-400">
+          Facts your agent remembers about you across all conversations. It saves them
+          automatically when you share something durable — review or delete them here.
+        </p>
+        {memMsg && <p className="mb-4 text-sm">{memMsg}</p>}
+        <div className="mb-4 space-y-2">
+          {memories.length === 0 && (
+            <p className="text-sm text-zinc-500">Nothing remembered yet — tell your agent something about yourself.</p>
+          )}
+          {memories.map((m) => (
+            <div key={m.id} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-900 px-4 py-2.5">
+              <p className="min-w-0 flex-1 text-sm">{m.content}</p>
+              <button
+                onClick={() => deleteMemoryUI(m.id)}
+                className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700"
+              >
+                Forget
+              </button>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={addMemoryManual} className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={newMemory}
+            onChange={(e) => setNewMemory(e.target.value)}
+            placeholder="Add a memory — e.g. My bakery is called Al Khair Trader"
+            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+          />
+          <button
+            type="submit"
+            disabled={!newMemory.trim()}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
+          >
+            Remember
+          </button>
+        </form>
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+        <h2 className="mb-3 text-lg font-semibold">Code execution (E2B)</h2>
+        <p className="mb-4 text-sm text-zinc-400">
+          Lets your agent run Python/JavaScript in a secure E2B cloud sandbox — never on
+          this server. Get a free key at{" "}
+          <a href="https://e2b.dev" target="_blank" rel="noreferrer" className="underline">
+            e2b.dev
+          </a>
+          . Stored AES-256 encrypted.
+        </p>
+        {e2bMsg && <p className="mb-4 text-sm">{e2bMsg}</p>}
+        {e2bConfigured ? (
+          <div className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-2.5">
+            <p className="text-sm">✅ E2B key configured — code execution is on</p>
+            <button
+              onClick={removeE2BKey}
+              className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700"
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={saveE2BKey} className="flex flex-col gap-2 sm:flex-row">
+            <input
+              value={e2bKeyValue}
+              onChange={(e) => setE2bKeyValue(e.target.value)}
+              placeholder="e2b_…"
+              type="password"
+              className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              disabled={e2bBusy || !e2bKeyValue.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {e2bBusy ? "Verifying…" : "Save key"}
+            </button>
+          </form>
+        )}
       </section>
 
       <section className="mb-8 rounded-2xl border border-[var(--ag-border)] bg-[var(--ag-sidebar)] p-5">
