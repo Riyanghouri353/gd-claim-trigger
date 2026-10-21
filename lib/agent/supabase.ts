@@ -98,9 +98,9 @@ export type Database = {
         Relationships: [];
       };
       conversations: {
-        Row: { id: string; title: string | null; created_at: string };
+        Row: { id: string; title: string | null; created_at: string; updated_at: string };
         Insert: { title?: string | null };
-        Update: { title?: string | null };
+        Update: { title?: string | null; updated_at?: string };
         Relationships: [];
       };
       memories: {
@@ -125,6 +125,18 @@ export type Database = {
         Row: { id: string; site_id: string; path: string; content: string; updated_at: string };
         Insert: { site_id: string; path: string; content: string; updated_at?: string };
         Update: { content?: string; updated_at?: string };
+        Relationships: [];
+      };
+      agent_tasks: {
+        Row: { id: string; name: string; instructions: string; schedule_kind: string; time_of_day: string | null; weekday: number | null; interval_minutes: number | null; timezone: string; enabled: boolean; conversation_id: string | null; last_run_at: string | null; next_run_at: string | null; last_status: string | null; created_at: string; updated_at: string };
+        Insert: { name: string; instructions: string; schedule_kind?: string; time_of_day?: string | null; weekday?: number | null; interval_minutes?: number | null; timezone?: string; enabled?: boolean; conversation_id?: string | null; last_run_at?: string | null; next_run_at?: string | null; last_status?: string | null };
+        Update: { name?: string; instructions?: string; schedule_kind?: string; time_of_day?: string | null; weekday?: number | null; interval_minutes?: number | null; timezone?: string; enabled?: boolean; conversation_id?: string | null; last_run_at?: string | null; next_run_at?: string | null; last_status?: string | null; updated_at?: string };
+        Relationships: [];
+      };
+      agent_task_runs: {
+        Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
+        Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
+        Update: { status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
         Relationships: [];
       };
       messages: {
