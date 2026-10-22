@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Globe, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Globe, Inbox, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,15 @@ interface Site {
   preview_url: string | null;
   live_url: string | null;
   updated_at: string;
+  submissions?: { total: number; unread: number };
+}
+
+interface Submission {
+  id: string;
+  form_name: string;
+  data: Record<string, unknown>;
+  is_read: boolean;
+  created_at: string;
 }
 
 export default function SitesClient() {
@@ -24,6 +33,8 @@ export default function SitesClient() {
   const [loading, setLoading] = useState(true);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [inboxFor, setInboxFor] = useState<string | null>(null);
+  const [subs, setSubs] = useState<Submission[]>([]);
 
   async function load() {
     const res = await fetch("/api/agent/sites");
@@ -45,6 +56,37 @@ export default function SitesClient() {
     await fetch(`/api/agent/sites/${id}`, { method: "DELETE" });
     setBusyId(null);
     setConfirmId(null);
+    load();
+  }
+
+  async function toggleInbox(s: Site) {
+    if (inboxFor === s.id) {
+      setInboxFor(null);
+      return;
+    }
+    const res = await fetch(`/api/agent/sites/${s.id}/submissions?limit=50`);
+    if (res.ok) {
+      setSubs((await res.json()).submissions ?? []);
+      setInboxFor(s.id);
+    }
+  }
+
+  async function markRead(sub: Submission) {
+    if (!inboxFor) return;
+    await fetch(`/api/agent/sites/${inboxFor}/submissions`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: sub.id, read: !sub.is_read }),
+    }).catch(() => {});
+    const res = await fetch(`/api/agent/sites/${inboxFor}/submissions?limit=50`);
+    if (res.ok) setSubs((await res.json()).submissions ?? []);
+    load();
+  }
+
+  async function deleteSub(siteId: string, subId: string) {
+    await fetch(`/api/agent/sites/${siteId}/submissions?sub=${subId}`, { method: "DELETE" });
+    const res = await fetch(`/api/agent/sites/${siteId}/submissions?limit=50`);
+    if (res.ok) setSubs((await res.json()).submissions ?? []);
     load();
   }
 
@@ -96,7 +138,8 @@ export default function SitesClient() {
                   Updated {new Date(s.updated_at).toLocaleString()}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-wrap items-center gap-2">
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
                 {s.preview_url && (
                   <a href={s.preview_url} target="_blank" rel="noopener noreferrer">
                     <Button variant="outline" size="sm">
@@ -109,6 +152,19 @@ export default function SitesClient() {
                     <Button size="sm">Open live site ↗</Button>
                   </a>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleInbox(s)}
+                >
+                  <Inbox className="size-4" />
+                  Submissions ({s.submissions?.total ?? 0})
+                  {(s.submissions?.unread ?? 0) > 0 && (
+                    <Badge variant="destructive" className="ml-1">
+                      {s.submissions?.unread} new
+                    </Badge>
+                  )}
+                </Button>
                 <span className="flex-1" />
                 {confirmId === s.id ? (
                   <>
@@ -137,6 +193,50 @@ export default function SitesClient() {
                   >
                     <Trash2 className="size-4" /> Delete
                   </Button>
+                )}
+                </div>
+                {inboxFor === s.id && (
+                  <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                    {subs.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No submissions yet — they appear here when a visitor sends one of
+                        the site's forms.
+                      </p>
+                    )}
+                    {subs.map((sub) => (
+                      <div
+                        key={sub.id}
+                        className={`rounded-md border bg-background p-3 text-sm ${sub.is_read ? "opacity-60" : ""}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Badge variant="secondary">{sub.form_name}</Badge>
+                          {new Date(sub.created_at).toLocaleString()}
+                          {!sub.is_read && <Badge variant="success">new</Badge>}
+                          <span className="flex-1" />
+                          <button
+                            className="underline underline-offset-2 hover:text-foreground"
+                            onClick={() => markRead(sub)}
+                          >
+                            Mark {sub.is_read ? "unread" : "read"}
+                          </button>
+                          <button
+                            className="text-destructive underline underline-offset-2"
+                            onClick={() => deleteSub(s.id, sub.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        <dl className="mt-2 space-y-1">
+                          {Object.entries(sub.data).map(([k, v]) => (
+                            <div key={k} className="flex gap-2">
+                              <dt className="min-w-24 font-medium capitalize">{k}</dt>
+                              <dd className="whitespace-pre-wrap break-words">{String(v)}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>

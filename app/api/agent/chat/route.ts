@@ -31,6 +31,7 @@ import {
   SITE_APEX,
 } from "@/lib/agent/sites";
 import { createTask, listTasks, describeSchedule } from "@/lib/agent/tasks";
+import { listSubmissions } from "@/lib/agent/submissions";
 
 export const maxDuration = 60;
 
@@ -177,6 +178,7 @@ export async function POST(req: Request) {
     SITE_APEX +
     ". Never try to write package.json, config files, app/layout.jsx, app/globals.css or lib/utils.js; the scaffold owns them. Refer to sites by slug." +
     "\n\nUI RULE for websites: build every interface from the PREINSTALLED shadcn/ui component library — import { Button } from \"@/components/ui/button\", and Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator, Avatar from \"@/components/ui/…\". Use Lucide icons (import { ArrowRight, Star, Check } from \"lucide-react\") — never inline SVG icons. Do NOT hand-roll buttons, inputs, cards or modals with raw divs; compose library components, pass variant/size props, and style with Tailwind classes and theme tokens (bg-primary, text-primary-foreground, bg-card, text-muted-foreground, border-border, bg-muted, bg-accent). Use cn() from \"@/lib/utils\" for conditional classes. Put custom sections in components/ (components/ui/ is the library — never write there)." +
+    "\n\nWebsite BACKEND (forms): any form that must SAVE data — contact, order, booking, quote, signup — must use the prebuilt LeadForm from \"@/components/site/lead-form\" (pass form name + fields array) or its submitForm(formName, data) helper for custom layouts. Submissions are stored in the site's inbox automatically; NEVER write a fake onSubmit that only shows a success message. Read submissions any time with the list_site_submissions tool and summarize them for the user (e.g. new orders on the bakery site)." +
     "\n\nScheduled tasks: when the user asks for something recurring (daily briefings, periodic checks, reminders with research), use create_task with complete self-contained instructions — the future run has no memory of this chat beyond long-term memory. Confirm the schedule back to the user in plain words.";
 
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
@@ -423,6 +425,35 @@ export async function POST(req: Request) {
             };
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not read site" };
+          }
+        },
+      }),
+      list_site_submissions: tool({
+        description:
+          "Read a website's form submissions inbox (by slug): contact messages, orders, bookings sent from the site's LeadForm/submitForm forms. Use when the user asks about messages/orders from a site, and in digests.",
+        inputSchema: z.object({
+          site: z.string().describe("Site slug"),
+          limit: z.number().optional().describe("Max rows (default 20)"),
+          unreadOnly: z.boolean().optional().describe("Only unread submissions"),
+        }),
+        execute: async ({ site, limit, unreadOnly }) => {
+          try {
+            const s = await resolveSite(site);
+            if (!s) return { ok: false, error: `Site "${site}" not found` };
+            const rows = await listSubmissions(s.id, limit ?? 20, unreadOnly ?? false);
+            return {
+              ok: true,
+              site: s.slug,
+              count: rows.length,
+              submissions: rows.map((r) => ({
+                form: r.form_name,
+                at: r.created_at,
+                read: r.is_read,
+                data: r.data,
+              })),
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not read submissions" };
           }
         },
       }),
