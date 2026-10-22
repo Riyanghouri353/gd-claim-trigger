@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Globe, Inbox, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Eye, Globe, Inbox, Loader2, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,9 @@ export default function SitesClient() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [inboxFor, setInboxFor] = useState<string | null>(null);
   const [subs, setSubs] = useState<Submission[]>([]);
+  const [previews, setPreviews] = useState<Record<string, { url: string; expiresInMin: number } | null>>({});
+  const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
+  const [previewMsg, setPreviewMsg] = useState("");
 
   async function load() {
     const res = await fetch("/api/agent/sites");
@@ -42,7 +45,24 @@ export default function SitesClient() {
       router.push("/agent/login");
       return;
     }
-    if (res.ok) setSites((await res.json()).sites ?? []);
+    if (res.ok) {
+      const list: Site[] = (await res.json()).sites ?? [];
+      setSites(list);
+      // Pick up any live preview sandboxes
+      for (const s of list) {
+        fetch(`/api/agent/sites/${s.id}/preview`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (j?.preview?.url) {
+              setPreviews((p) => ({
+                ...p,
+                [s.id]: { url: j.preview.url, expiresInMin: j.preview.expiresInMin ?? 10 },
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+    }
     setLoading(false);
   }
 
@@ -50,6 +70,34 @@ export default function SitesClient() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function startPreview(s: Site) {
+    setPreviewBusyId(s.id);
+    setPreviewMsg("");
+    try {
+      const res = await fetch(`/api/agent/sites/${s.id}/preview`, { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (j.ok && j.url) {
+        setPreviews((p) => ({ ...p, [s.id]: { url: j.url, expiresInMin: j.expiresInMin ?? 10 } }));
+        window.open(j.url, "_blank", "noopener,noreferrer");
+        setPreviewMsg(
+          `✅ Preview live for ${s.name} — sandbox build OK` +
+            (j.smoke ? `, smoke test HTTP ${j.smoke.status}` : "") +
+            `. Link works ~${j.expiresInMin ?? 10} min.`
+        );
+      } else {
+        setPreviewMsg("❌ " + (j.error || "Preview failed") + (j.buildLog ? "\n" + String(j.buildLog).slice(-600) : ""));
+      }
+    } catch {
+      setPreviewMsg("❌ Preview request failed");
+    }
+    setPreviewBusyId(null);
+  }
+
+  async function stopPreview(s: Site) {
+    await fetch(`/api/agent/sites/${s.id}/preview`, { method: "DELETE" }).catch(() => {});
+    setPreviews((p) => ({ ...p, [s.id]: null }));
+  }
 
   async function remove(id: string) {
     setBusyId(id);
@@ -105,10 +153,18 @@ export default function SitesClient() {
       <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
         <Globe className="size-6 text-primary" /> My websites
       </h1>
-      <p className="mb-8 mt-1 text-sm text-muted-foreground">
+      <p className="mb-4 mt-1 text-sm text-muted-foreground">
         Websites your agent built. Ask in chat to create or edit one, deploy a preview, or
         publish it live at its veritask.site subdomain.
       </p>
+      <p className="mb-8 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Live preview</span> builds the site in a
+        cloud sandbox (no Vercel needed) and gives you a link that works for ~10 minutes —
+        the build doubles as an automatic test of the site.
+      </p>
+      {previewMsg && (
+        <p className="mb-6 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm">{previewMsg}</p>
+      )}
 
       {loading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -165,6 +221,32 @@ export default function SitesClient() {
                     </Badge>
                   )}
                 </Button>
+                {previews[s.id] ? (
+                  <>
+                    <a href={previews[s.id]!.url} target="_blank" rel="noopener noreferrer">
+                      <Button size="sm">
+                        <Eye className="size-4" /> Open preview (~{previews[s.id]!.expiresInMin}m)
+                      </Button>
+                    </a>
+                    <Button variant="ghost" size="sm" onClick={() => stopPreview(s)}>
+                      <Square className="size-4" /> Stop
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={previewBusyId === s.id}
+                    onClick={() => startPreview(s)}
+                  >
+                    {previewBusyId === s.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                    {previewBusyId === s.id ? "Building…" : "Live preview"}
+                  </Button>
+                )}
                 <span className="flex-1" />
                 {confirmId === s.id ? (
                   <>

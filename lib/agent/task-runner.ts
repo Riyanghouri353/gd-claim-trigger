@@ -38,6 +38,7 @@ import {
   type AgentTask,
 } from "./tasks";
 import { listSubmissions } from "./submissions";
+import { startSitePreview, stopSitePreview } from "./site-preview";
 
 /**
  * Headless task execution: runs an agent_tasks job with (nearly) the same
@@ -239,6 +240,20 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
             data: r.data,
           })),
         };
+      },
+    }),
+    preview_site: tool({
+      description: "Build and serve a website (by slug) in an E2B sandbox; returns a public preview URL (~10 min) and a Python smoke-test result. On build failure returns the build log.",
+      inputSchema: z.object({ site: z.string() }),
+      execute: async ({ site }) => startSitePreview(site),
+    }),
+    stop_preview: tool({
+      description: "Stop a website's live preview sandbox (by slug).",
+      inputSchema: z.object({ site: z.string() }),
+      execute: async ({ site }) => {
+        const s = await resolveSite(site);
+        if (!s) return { ok: false, error: `Site "${site}" not found` };
+        return stopSitePreview(s.id);
       },
     }),
     create_task: tool({
