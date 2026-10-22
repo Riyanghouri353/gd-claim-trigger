@@ -37,6 +37,7 @@ import {
   describeSchedule,
   type AgentTask,
 } from "./tasks";
+import { listSubmissions } from "./submissions";
 
 /**
  * Headless task execution: runs an agent_tasks job with (nearly) the same
@@ -169,7 +170,7 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       },
     }),
     write_site_file: tool({
-      description: "Create or overwrite one file of a website (by slug): app/ pages, components/ custom components (compose @/components/ui library), lib/ mock data. Frontend only.",
+      description: "Create or overwrite one file of a website (by slug): app/ pages, components/ custom components (compose @/components/ui library), lib/ mock data. Frontend only. For forms that must SAVE data use LeadForm/submitForm from @/components/site/lead-form — never a fake onSubmit.",
       inputSchema: z.object({ site: z.string(), path: z.string(), content: z.string() }),
       execute: async ({ site, path, content }) => {
         try {
@@ -214,6 +215,30 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
         } catch (e: any) {
           return { ok: false, target, error: e?.message || "Deploy failed" };
         }
+      },
+    }),
+    list_site_submissions: tool({
+      description: "Read a website's form submissions (by slug): contact messages, orders, bookings sent from the site's forms. Ideal for order/lead digests.",
+      inputSchema: z.object({
+        site: z.string(),
+        limit: z.number().optional(),
+        unreadOnly: z.boolean().optional(),
+      }),
+      execute: async ({ site, limit, unreadOnly }) => {
+        const s = await resolveSite(site);
+        if (!s) return { ok: false, error: `Site "${site}" not found` };
+        const rows = await listSubmissions(s.id, limit ?? 20, unreadOnly ?? false);
+        return {
+          ok: true,
+          site: s.slug,
+          count: rows.length,
+          submissions: rows.map((r) => ({
+            form: r.form_name,
+            at: r.created_at,
+            read: r.is_read,
+            data: r.data,
+          })),
+        };
       },
     }),
     create_task: tool({

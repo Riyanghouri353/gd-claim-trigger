@@ -133,6 +133,12 @@ export type Database = {
         Update: { name?: string; instructions?: string; schedule_kind?: string; time_of_day?: string | null; weekday?: number | null; interval_minutes?: number | null; timezone?: string; enabled?: boolean; conversation_id?: string | null; last_run_at?: string | null; next_run_at?: string | null; last_status?: string | null; updated_at?: string };
         Relationships: [];
       };
+      site_submissions: {
+        Row: { id: string; site_id: string; form_name: string; data: Record<string, unknown>; ip: string | null; is_read: boolean; created_at: string };
+        Insert: { site_id: string; form_name?: string; data?: Record<string, unknown>; ip?: string | null; is_read?: boolean };
+        Update: { is_read?: boolean };
+        Relationships: [];
+      };
       agent_task_runs: {
         Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
         Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
