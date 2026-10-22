@@ -139,6 +139,12 @@ export type Database = {
         Update: { is_read?: boolean };
         Relationships: [];
       };
+      test_accounts: {
+        Row: { id: string; site: string; label: string; email: string; username: string; secret_enc: string; generated: boolean; created_at: string };
+        Insert: { site: string; label?: string; email?: string; username?: string; secret_enc: string; generated?: boolean };
+        Update: { site?: string; label?: string; email?: string; username?: string; secret_enc?: string; generated?: boolean };
+        Relationships: [];
+      };
       agent_task_runs: {
         Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
         Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
