@@ -21,7 +21,7 @@ import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
 import { browsePage, browserOpen, browserAct, browserClose, getCachedScreenshot } from "@/lib/agent/browser";
-import { pyBrowserAction, apiTest } from "@/lib/agent/pybrowser";
+import { pyBrowserAction, apiTest, runSiteTest } from "@/lib/agent/pybrowser";
 import {
   createSite,
   writeSiteFile,
@@ -173,7 +173,8 @@ export async function POST(req: Request) {
   if (e2bKey) {
     systemPrompt +=
       "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL." +
-      "\n\nPython automation (py_browser + api_test): for FORM FILLING and precise page interaction prefer py_browser — a Playwright (Python) browser driven by DOM selectors (fill/click/submit/scroll), far more reliable than pixel clicks; use the desktop browser only when a page needs visual aiming. Use api_test to verify HTTP APIs with assertions (status, body, JSON paths) instead of eyeballing raw responses.";
+      "\n\nPython automation (py_browser + api_test): for FORM FILLING and precise page interaction prefer py_browser — a Playwright (Python) browser driven by DOM selectors (fill/click/submit/scroll), far more reliable than pixel clicks; use the desktop browser only when a page needs visual aiming. Use api_test to verify HTTP APIs with assertions (status, body, JSON paths) instead of eyeballing raw responses." +
+      "\n\nSITE TESTING PROTOCOL — when the user asks you to test a website, form, flow or API, work like a QA engineer who thinks before acting: (1) PLAN FIRST: state the goal and the steps you will run, with what you EXPECT to observe at each step, before touching anything. (2) INSPECT before interacting: py_browser action=inspect returns the page's real forms, fields, buttons and correct selectors — never guess selectors blind. (3) EXECUTE the plan with run_site_test for multi-step flows (it checks your expectations and stops with a screenshot on failure); use py_browser step-by-step only when exploring. (4) VERIFY outcomes, never assume them: a form counts as passed only when the result page, an API response, or the site's submissions inbox (list_site_submissions) proves the data landed. (5) DIAGNOSE before retrying: on failure, read the screenshot and page text, state your hypothesis (wrong selector, validation message, element below the fold -> scroll, slow page -> wait_for), change ONE thing, and retry — at most 2 retries per step, then report the blocker with the evidence. (6) REPORT a per-step pass/fail summary with the concrete evidence you observed (URLs, values read back, response codes), not just 'it worked'.";
   }
 
   systemPrompt +=
@@ -622,31 +623,66 @@ export async function POST(req: Request) {
             }),
             py_browser: tool({
               description:
-                "Python (Playwright) browser automation — PREFER this for FORM FILLING and precise interaction: it drives the page by DOM selectors, not pixels. Actions: open (go to URL, returns page text + screenshot), fill (selector + value), type, click (selector), submit (form selector, or Enter when omitted), press (key), scroll (direction/amount), read (page text), screenshot, close. Selectors: CSS (#id, [name='email'], button[type='submit'], .class) or Playwright text engine (text=Sign in). The session persists across calls in this conversation. Returns title, URL, page text (on open/read) and a screenshot after most actions.",
+                "Python (Playwright) browser automation — PREFER this for FORM FILLING and precise interaction: it drives the page by DOM selectors, not pixels. Actions: open (go to URL, returns page text + screenshot), inspect (map the page's forms, fields, buttons and their correct selectors — ALWAYS inspect before filling a form you haven't seen), fill (selector + value; returns the field's actual value as read-back proof), type, click (selector; waits for the page to settle and returns the resulting page text), submit (form selector, or Enter when omitted), press (key), scroll (direction/amount, or to a selector), wait_for (until a selector is visible / page contains text / URL contains a string), read (page text), screenshot, close. Selectors: CSS (#id, [name='email'], button[type='submit'], .class) or Playwright text engine (text=Sign in). The session persists across calls in this conversation.",
               inputSchema: z.object({
-                action: z.enum(["open", "fill", "type", "click", "submit", "press", "scroll", "read", "screenshot", "close"]),
+                action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close"]),
                 url: z.string().optional().describe("For open: full http(s) URL"),
-                selector: z.string().optional().describe("CSS or text= selector for fill/type/click/submit"),
+                selector: z.string().optional().describe("CSS or text= selector for fill/type/click/submit/scroll/wait_for"),
                 value: z.string().optional().describe("For fill/type: the text to enter"),
                 key: z.string().optional().describe("For press: e.g. Enter, Tab, Escape, ArrowDown"),
                 direction: z.enum(["up", "down"]).optional().describe("For scroll"),
                 amount: z.number().optional().describe("For scroll: pixels (default 600)"),
+                text: z.string().optional().describe("For wait_for: text that must appear on the page"),
+                urlContains: z.string().optional().describe("For wait_for: substring the URL must contain"),
+                ms: z.number().optional().describe("For wait_for: timeout in ms (default 10000)"),
                 screenshot: z.boolean().optional().describe("Force a screenshot with this action"),
               }),
-              execute: async ({ action, url, selector, value, key, direction, amount, screenshot }) => {
+              execute: async (args) => {
                 try {
-                  return await pyBrowserAction(e2bKey, conversationId, action, {
-                    url, selector, value, key, direction, amount, screenshot,
-                  });
+                  return await pyBrowserAction(e2bKey, conversationId, args.action, args);
                 } catch (e: any) {
                   return { ok: false, error: `Python browser failed: ${e?.message || e}` };
                 }
               },
               toModelOutput: browseModelOutput,
             }),
+            run_site_test: tool({
+              description:
+                "Run a PLANNED site test in the py_browser session: give an ordered list of steps, each with an optional expectation (expect.textContains / urlContains / titleContains / valueEquals). Steps execute in order; every expectation is checked against what was actually observed; the run stops at the first failure and returns a structured report (per-step observed URL/title/value, failure reasons, and a screenshot of the failure state). Use this for form flows and site QA instead of ad-hoc clicking: inspect the page first to get real selectors, then encode the test. After a failure, diagnose from the report + screenshot, fix ONE thing, and re-run.",
+              inputSchema: z.object({
+                steps: z.array(
+                  z.object({
+                    action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot"]),
+                    url: z.string().optional(),
+                    selector: z.string().optional(),
+                    value: z.string().optional(),
+                    key: z.string().optional(),
+                    direction: z.enum(["up", "down"]).optional(),
+                    amount: z.number().optional(),
+                    note: z.string().optional().describe("What this step is meant to prove"),
+                    expect: z
+                      .object({
+                        textContains: z.string().optional(),
+                        urlContains: z.string().optional(),
+                        titleContains: z.string().optional(),
+                        valueEquals: z.string().optional(),
+                      })
+                      .optional(),
+                  })
+                ).min(1).max(25),
+              }),
+              execute: async ({ steps }) => {
+                try {
+                  return await runSiteTest(e2bKey, conversationId, steps as any);
+                } catch (e: any) {
+                  return { ok: false, error: `Site test failed: ${e?.message || e}` };
+                }
+              },
+              toModelOutput: browseModelOutput,
+            }),
             api_test: tool({
               description:
-                "Test an HTTP API with Python requests and get structured results + assertion checks. Use to verify endpoints, webhooks and your connectors' APIs. Provide method, url, optional headers/body, and expectations: expectStatus, bodyContains, jsonPath (dot path like data.0.id) with optional jsonEquals. Returns status, response time, headers, parsed body and per-check pass/fail.",
+                "Test HTTP APIs with Python requests and get structured results + assertion checks. Single call: method, url, optional headers/body, expectations (expectStatus, bodyContains, jsonPath like data.0.id, jsonEquals). MULTI-STEP flows: pass `steps` (array of the same fields) — steps run in order in one session; a step may extract values from its JSON response with extract: {varName: 'json.dot.path'} and later steps use {{varName}} in url/headers/body (e.g. login → extract token → call a protected endpoint with Authorization: Bearer {{token}}). Returns per-step status, time, checks and extracted variable names.",
               inputSchema: z.object({
                 method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
                 url: z.string().describe("Full http(s) URL"),
@@ -656,6 +692,22 @@ export async function POST(req: Request) {
                 bodyContains: z.string().optional(),
                 jsonPath: z.string().optional().describe("Dot path into the JSON response, e.g. data.items.0.name"),
                 jsonEquals: z.any().optional().describe("Expected value at jsonPath"),
+                steps: z
+                  .array(
+                    z.object({
+                      method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
+                      url: z.string(),
+                      headers: z.record(z.string(), z.string()).optional(),
+                      body: z.any().optional(),
+                      expectStatus: z.number().optional(),
+                      bodyContains: z.string().optional(),
+                      jsonPath: z.string().optional(),
+                      jsonEquals: z.any().optional(),
+                      extract: z.record(z.string(), z.string()).optional().describe("Map of variable name -> JSON dot path to extract from this step's response"),
+                    })
+                  )
+                  .optional()
+                  .describe("Multi-step flow; when present, the top-level fields are ignored"),
               }),
               execute: async (spec) => {
                 try {

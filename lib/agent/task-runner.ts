@@ -39,7 +39,7 @@ import {
 } from "./tasks";
 import { listSubmissions } from "./submissions";
 import { startSitePreview, stopSitePreview } from "./site-preview";
-import { pyBrowserAction, apiTest } from "./pybrowser";
+import { pyBrowserAction, apiTest, runSiteTest } from "./pybrowser";
 
 /**
  * Headless task execution: runs an agent_tasks job with (nearly) the same
@@ -93,7 +93,8 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
     `Schedule: ${describeSchedule(task)}. Current time: ${now.toLocaleString("en-GB", { timeZone: task.timezone })} (${task.timezone}), UTC ${now.toISOString()}. ` +
     "There is no user present. Execute the instructions completely using your tools, then write a clear final report as your last message — that report is what gets delivered to the user. " +
     "Text only: no visual guides. If you take browser screenshots, link the most useful one in the report as ![screenshot](screenshotPath). " +
-    "If something blocks you, say exactly what in the report instead of failing silently.";
+    "If something blocks you, say exactly what in the report instead of failing silently." +
+    "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values.";
   return prompt;
 }
 
@@ -358,27 +359,60 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       execute: async () => browserClose(conversationId),
     });
     tools.py_browser = tool({
-      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/fill/type/click/submit/press/scroll/read/screenshot/close. Selectors: CSS or text=…. Session persists across calls. Link any screenshotPath in the report.",
+      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close. inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value. Session persists across calls. Link any screenshotPath in the report.",
       inputSchema: z.object({
-        action: z.enum(["open", "fill", "type", "click", "submit", "press", "scroll", "read", "screenshot", "close"]),
+        action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close"]),
         url: z.string().optional(),
         selector: z.string().optional(),
         value: z.string().optional(),
         key: z.string().optional(),
         direction: z.enum(["up", "down"]).optional(),
         amount: z.number().optional(),
+        text: z.string().optional(),
+        urlContains: z.string().optional(),
+        ms: z.number().optional(),
         screenshot: z.boolean().optional(),
       }),
-      execute: async ({ action, ...rest }) => {
+      execute: async (args) => {
         try {
-          return await pyBrowserAction(e2bKey, conversationId, action, rest);
+          return await pyBrowserAction(e2bKey, conversationId, args.action, args);
         } catch (e: any) {
           return { ok: false, error: `Python browser failed: ${e?.message || e}` };
         }
       },
     });
+    tools.run_site_test = tool({
+      description: "Run a PLANNED site test (array of steps with optional expect {textContains, urlContains, titleContains, valueEquals}) in the py_browser session. Stops at the first failure with a screenshot + observed values. Inspect the page first for real selectors, then encode the plan.",
+      inputSchema: z.object({
+        steps: z.array(
+          z.object({
+            action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot"]),
+            url: z.string().optional(),
+            selector: z.string().optional(),
+            value: z.string().optional(),
+            key: z.string().optional(),
+            direction: z.enum(["up", "down"]).optional(),
+            amount: z.number().optional(),
+            note: z.string().optional(),
+            expect: z.object({
+              textContains: z.string().optional(),
+              urlContains: z.string().optional(),
+              titleContains: z.string().optional(),
+              valueEquals: z.string().optional(),
+            }).optional(),
+          })
+        ).min(1).max(25),
+      }),
+      execute: async ({ steps }) => {
+        try {
+          return await runSiteTest(e2bKey, conversationId, steps as any);
+        } catch (e: any) {
+          return { ok: false, error: `Site test failed: ${e?.message || e}` };
+        }
+      },
+    });
     tools.api_test = tool({
-      description: "Test an HTTP API with Python requests: method/url/headers/body + assertions (expectStatus, bodyContains, jsonPath, jsonEquals). Returns status, time, body and per-check pass/fail.",
+      description: "Test HTTP APIs with Python requests: single call (method/url/headers/body + expectStatus/bodyContains/jsonPath/jsonEquals) or multi-step via steps[] with extract {var: 'json.path'} and {{var}} substitution in later steps (login -> token -> protected call). Returns per-step status, checks, extracted var names.",
       inputSchema: z.object({
         method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
         url: z.string(),
@@ -388,10 +422,23 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
         bodyContains: z.string().optional(),
         jsonPath: z.string().optional(),
         jsonEquals: z.any().optional(),
+        steps: z.array(
+          z.object({
+            method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
+            url: z.string(),
+            headers: z.record(z.string(), z.string()).optional(),
+            body: z.any().optional(),
+            expectStatus: z.number().optional(),
+            bodyContains: z.string().optional(),
+            jsonPath: z.string().optional(),
+            jsonEquals: z.any().optional(),
+            extract: z.record(z.string(), z.string()).optional(),
+          })
+        ).optional(),
       }),
       execute: async (spec) => {
         try {
-          return await apiTest(e2bKey, spec);
+          return await apiTest(e2bKey, spec as any);
         } catch (e: any) {
           return { ok: false, error: `API test failed: ${e?.message || e}` };
         }
