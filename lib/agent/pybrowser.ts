@@ -162,6 +162,23 @@ function keyOf(conversationId: string | null): string {
   return conversationId || "default";
 }
 
+/** Race a promise against a timeout so a stuck sandbox call can never hang a tool forever. */
+async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function ensureSession(key: string, apiKey: string): Promise<PySession> {
   const now = Date.now();
   const stale: string[] = [];
@@ -187,15 +204,18 @@ async function ensureSession(key: string, apiKey: string): Promise<PySession> {
       `nohup python3 ${PB_DIR}/driver.py > ${PB_DIR}/driver.log 2>&1 &`,
       { timeoutMs: 15_000 }
     ).catch(() => {});
-    // Wait for the driver to finish installing + launching (worst case minutes)
+    // Wait for the driver to finish installing + launching (worst case minutes).
+    // Poll via shell commands (hard per-call timeouts) — never files.read on a
+    // file that may not exist yet.
     let ready = false;
-    for (let i = 0; i < 110 && !ready; i++) {
-      try {
-        await sandbox.files.read(`${PB_DIR}/ready`);
-        ready = true;
-      } catch {
-        await new Promise((r) => setTimeout(r, 3000));
-      }
+    for (let i = 0; i < 60 && !ready; i++) {
+      const probe = await withTimeout(
+        sandbox.commands.run(`test -f ${PB_DIR}/ready && echo READY || true`, { timeoutMs: 10_000 }),
+        12_000,
+        null
+      );
+      if (probe && (probe.stdout || "").includes("READY")) ready = true;
+      else await new Promise((r) => setTimeout(r, 2500));
     }
     if (!ready) {
       const log = await sandbox.commands
@@ -241,22 +261,30 @@ export async function pyBrowserAction(
   const session = await ensureSession(key, apiKey);
   session.lastUsed = Date.now();
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await session.sandbox.files.write(
-    `${PB_DIR}/cmd.json`,
-    JSON.stringify({ id, action, args })
+  await withTimeout(
+    session.sandbox.files.write(`${PB_DIR}/cmd.json`, JSON.stringify({ id, action, args })),
+    20_000,
+    undefined
   );
   const timeoutMs = action === "open" || action === "goto" ? 75_000 : 45_000;
   const deadline = Date.now() + timeoutMs;
   let res: any = null;
   while (Date.now() < deadline) {
-    try {
-      const raw = await session.sandbox.files.read(`${PB_DIR}/res.json`);
-      const parsed = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw as any));
-      if (parsed.id === id) {
-        res = parsed;
-        break;
-      }
-    } catch { /* not written yet */ }
+    const cat = await withTimeout(
+      session.sandbox.commands.run(`cat ${PB_DIR}/res.json 2>/dev/null || true`, { timeoutMs: 10_000 }),
+      12_000,
+      null
+    );
+    const raw = (cat?.stdout || "").trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.id === id) {
+          res = parsed;
+          break;
+        }
+      } catch { /* partial write — keep polling */ }
+    }
     await new Promise((r) => setTimeout(r, 600));
   }
   if (!res) {
@@ -272,12 +300,18 @@ export async function pyBrowserAction(
   };
   if (res.shot) {
     try {
-      const buf = await session.sandbox.files.read(`${PB_DIR}/shot.png`, { format: "bytes" });
-      const base64 = Buffer.from(buf as ArrayBuffer).toString("base64");
-      const file = await createAgentImageFile("py-browser-screenshot.png", base64, "image/png", conversationId);
-      cacheScreenshot(file.id, base64);
-      out.screenshotId = file.id;
-      out.screenshotPath = file.path;
+      const buf = await withTimeout(
+        session.sandbox.files.read(`${PB_DIR}/shot.png`, { format: "bytes" }),
+        20_000,
+        null
+      );
+      if (buf) {
+        const base64 = Buffer.from(buf as ArrayBuffer).toString("base64");
+        const file = await createAgentImageFile("py-browser-screenshot.png", base64, "image/png", conversationId);
+        cacheScreenshot(file.id, base64);
+        out.screenshotId = file.id;
+        out.screenshotPath = file.path;
+      }
     } catch { /* screenshot best-effort */ }
   }
   return out;
