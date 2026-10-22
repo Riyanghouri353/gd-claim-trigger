@@ -40,6 +40,7 @@ import {
 import { listSubmissions } from "./submissions";
 import { startSitePreview, stopSitePreview } from "./site-preview";
 import { pyBrowserAction, apiTest, runSiteTest } from "./pybrowser";
+import { listTestAccounts, generateTestIdentity } from "./test-accounts";
 
 /**
  * Headless task execution: runs an agent_tasks job with (nearly) the same
@@ -94,7 +95,8 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
     "There is no user present. Execute the instructions completely using your tools, then write a clear final report as your last message — that report is what gets delivered to the user. " +
     "Text only: no visual guides. If you take browser screenshots, link the most useful one in the report as ![screenshot](screenshotPath). " +
     "If something blocks you, say exactly what in the report instead of failing silently." +
-    "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values.";
+    "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values." +
+    "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); fill credentials ONLY via {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} tokens. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task.";
   return prompt;
 }
 
@@ -358,8 +360,31 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       inputSchema: z.object({}),
       execute: async () => browserClose(conversationId),
     });
+    tools.list_test_accounts = tool({
+      description: "List vault test accounts (site/label/email/username — never passwords). Fill credential fields with tokens {{account:email:<site>}}, {{account:username:<site>}}, {{account:password:<site>}} — the server substitutes the secret inside the browser.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        try {
+          return { ok: true, accounts: await listTestAccounts() };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Could not list accounts" };
+        }
+      },
+    });
+    tools.generate_test_identity = tool({
+      description: "Create + store a fresh test identity for a site (sign-up flows): returns email/username (password stays in the vault, used via tokens). The same stored account works for later logins.",
+      inputSchema: z.object({ site: z.string(), label: z.string().optional() }),
+      execute: async ({ site, label }) => {
+        try {
+          const account = await generateTestIdentity(site, label);
+          return { ok: true, account };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Could not generate identity" };
+        }
+      },
+    });
     tools.py_browser = tool({
-      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close. inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value. Session persists across calls. Link any screenshotPath in the report.",
+      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close. inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value (masked for password tokens). CREDENTIALS: fill with tokens {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} — never type a real password yourself. Session persists across calls. Link any screenshotPath in the report.",
       inputSchema: z.object({
         action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close"]),
         url: z.string().optional(),

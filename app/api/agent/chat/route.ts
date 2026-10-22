@@ -22,6 +22,7 @@ import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
 import { browsePage, browserOpen, browserAct, browserClose, getCachedScreenshot } from "@/lib/agent/browser";
 import { pyBrowserAction, apiTest, runSiteTest } from "@/lib/agent/pybrowser";
+import { listTestAccounts, generateTestIdentity } from "@/lib/agent/test-accounts";
 import {
   createSite,
   writeSiteFile,
@@ -174,7 +175,10 @@ export async function POST(req: Request) {
     systemPrompt +=
       "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL." +
       "\n\nPython automation (py_browser + api_test): for FORM FILLING and precise page interaction prefer py_browser — a Playwright (Python) browser driven by DOM selectors (fill/click/submit/scroll), far more reliable than pixel clicks; use the desktop browser only when a page needs visual aiming. Use api_test to verify HTTP APIs with assertions (status, body, JSON paths) instead of eyeballing raw responses." +
-      "\n\nSITE TESTING PROTOCOL — when the user asks you to test a website, form, flow or API, work like a QA engineer who thinks before acting: (1) PLAN FIRST: state the goal and the steps you will run, with what you EXPECT to observe at each step, before touching anything. (2) INSPECT before interacting: py_browser action=inspect returns the page's real forms, fields, buttons and correct selectors — never guess selectors blind. (3) EXECUTE the plan with run_site_test for multi-step flows (it checks your expectations and stops with a screenshot on failure); use py_browser step-by-step only when exploring. (4) VERIFY outcomes, never assume them: a form counts as passed only when the result page, an API response, or the site's submissions inbox (list_site_submissions) proves the data landed. (5) DIAGNOSE before retrying: on failure, read the screenshot and page text, state your hypothesis (wrong selector, validation message, element below the fold -> scroll, slow page -> wait_for), change ONE thing, and retry — at most 2 retries per step, then report the blocker with the evidence. (6) REPORT a per-step pass/fail summary with the concrete evidence you observed (URLs, values read back, response codes), not just 'it worked'.";
+      "\n\nSITE TESTING PROTOCOL — when the user asks you to test a website, form, flow or API, work like a QA engineer who thinks before acting: (1) PLAN FIRST: state the goal and the steps you will run, with what you EXPECT to observe at each step, before touching anything. (2) INSPECT before interacting: py_browser action=inspect returns the page's real forms, fields, buttons and correct selectors — never guess selectors blind. (3) EXECUTE the plan with run_site_test for multi-step flows (it checks your expectations and stops with a screenshot on failure); use py_browser step-by-step only when exploring. (4) VERIFY outcomes, never assume them: a form counts as passed only when the result page, an API response, or the site's submissions inbox (list_site_submissions) proves the data landed. (5) DIAGNOSE before retrying: on failure, read the screenshot and page text, state your hypothesis (wrong selector, validation message, element below the fold -> scroll, slow page -> wait_for), change ONE thing, and retry — at most 2 retries per step, then report the blocker with the evidence. (6) REPORT a per-step pass/fail summary with the concrete evidence you observed (URLs, values read back, response codes), not just 'it worked'." +
+      "\n\nACCOUNT FLOWS (sign-up & login): credentials live in the Test accounts vault — list_test_accounts shows site/label/email/username, never passwords. LOGGING IN: inspect the login form, fill the email/username field with {{account:email:<site>}} or {{account:username:<site>}} and the password field with {{account:password:<site>}}, submit, then VERIFY you are logged in (account name/avatar visible, dashboard URL, 'logout' link) before continuing. SIGNING UP: if no account exists for the site, call generate_test_identity first (it creates + stores one), then fill the sign-up form with that identity's tokens (email/username/password) plus any other required fields with sensible test data; after submitting, verify the welcome/confirmation state, and try logging in with the same stored account when the flow allows. NEVER ask the user to paste a password into chat, and never invent a password for an existing account." +
+      "\n\nWEB TASKS (do things, not just test): when the user asks you to DO something on a website — register an account, complete a multi-step flow, configure a dashboard, fill an application — work like a careful human operator: restate the goal and the proof you'll look for at the end; plan; execute with py_browser (inspect first, credential tokens for logins, run_site_test-style verification as you go); post brief progress notes at major steps with screenshots at key states; and finish by verifying the end state from evidence and reporting exactly what was done, including which account (email/username) was used." +
+      "\n\nHARD STOPS — stop and report for the user to take over when you hit: a CAPTCHA or bot check, an email/SMS verification code you cannot read, a payment or anything that spends real money, or a step that changes something irreversible outside the task (deleting an account, sending email/messages to real people). Everything else, push through and verify.";
   }
 
   systemPrompt +=
@@ -623,7 +627,7 @@ export async function POST(req: Request) {
             }),
             py_browser: tool({
               description:
-                "Python (Playwright) browser automation — PREFER this for FORM FILLING and precise interaction: it drives the page by DOM selectors, not pixels. Actions: open (go to URL, returns page text + screenshot), inspect (map the page's forms, fields, buttons and their correct selectors — ALWAYS inspect before filling a form you haven't seen), fill (selector + value; returns the field's actual value as read-back proof), type, click (selector; waits for the page to settle and returns the resulting page text), submit (form selector, or Enter when omitted), press (key), scroll (direction/amount, or to a selector), wait_for (until a selector is visible / page contains text / URL contains a string), read (page text), screenshot, close. Selectors: CSS (#id, [name='email'], button[type='submit'], .class) or Playwright text engine (text=Sign in). The session persists across calls in this conversation.",
+                "Python (Playwright) browser automation — PREFER this for FORM FILLING and precise interaction: it drives the page by DOM selectors, not pixels. Actions: open (go to URL, returns page text + screenshot), inspect (map the page's forms, fields, buttons and their correct selectors — ALWAYS inspect before filling a form you haven't seen), fill (selector + value; returns the field's actual value as read-back proof), type, click (selector; waits for the page to settle and returns the resulting page text), submit (form selector, or Enter when omitted), press (key), scroll (direction/amount, or to a selector), wait_for (until a selector is visible / page contains text / URL contains a string), read (page text), screenshot, close. Selectors: CSS (#id, [name='email'], button[type='submit'], .class) or Playwright text engine (text=Sign in). CREDENTIALS: never type a real password yourself — for a stored test account, set the fill value to a token {{account:email:<site-or-id>}}, {{account:username:<site-or-id>}} or {{account:password:<site-or-id>}} and the server substitutes the secret inside the browser (the read-back comes back masked). The session persists across calls in this conversation.",
               inputSchema: z.object({
                 action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close"]),
                 url: z.string().optional().describe("For open: full http(s) URL"),
@@ -645,6 +649,34 @@ export async function POST(req: Request) {
                 }
               },
               toModelOutput: browseModelOutput,
+            }),
+            list_test_accounts: tool({
+              description:
+                "List the test accounts in the vault (site, label, email, username — passwords are NEVER shown). Use to find the right account before a login, and to refer to an account when filling credential fields with tokens.",
+              inputSchema: z.object({}),
+              execute: async () => {
+                try {
+                  return { ok: true, accounts: await listTestAccounts() };
+                } catch (e: any) {
+                  return { ok: false, error: e?.message || "Could not list accounts" };
+                }
+              },
+            }),
+            generate_test_identity: tool({
+              description:
+                "Create and store a fresh test identity for a site (for SIGN-UP flows): generates a name, username, email and a strong password, and saves them in the Test accounts vault. Returns the email/username (never the password). Afterwards, sign up by filling the form fields with the credential tokens for this site, and the same stored account works for later logins.",
+              inputSchema: z.object({
+                site: z.string().describe("Site URL or domain the identity is for"),
+                label: z.string().optional(),
+              }),
+              execute: async ({ site, label }) => {
+                try {
+                  const account = await generateTestIdentity(site, label);
+                  return { ok: true, account, note: "Identity stored. Fill its fields with {{account:email:" + site + "}}, {{account:username:" + site + "}} and {{account:password:" + site + "}} tokens." };
+                } catch (e: any) {
+                  return { ok: false, error: e?.message || "Could not generate identity" };
+                }
+              },
             }),
             run_site_test: tool({
               description:
