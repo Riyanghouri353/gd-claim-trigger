@@ -32,6 +32,7 @@ import {
 } from "@/lib/agent/sites";
 import { createTask, listTasks, describeSchedule } from "@/lib/agent/tasks";
 import { listSubmissions } from "@/lib/agent/submissions";
+import { startSitePreview, stopSitePreview } from "@/lib/agent/site-preview";
 
 export const maxDuration = 60;
 
@@ -179,6 +180,7 @@ export async function POST(req: Request) {
     ". Never try to write package.json, config files, app/layout.jsx, app/globals.css or lib/utils.js; the scaffold owns them. Refer to sites by slug." +
     "\n\nUI RULE for websites: build every interface from the PREINSTALLED shadcn/ui component library — import { Button } from \"@/components/ui/button\", and Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator, Avatar from \"@/components/ui/…\". Use Lucide icons (import { ArrowRight, Star, Check } from \"lucide-react\") — never inline SVG icons. Do NOT hand-roll buttons, inputs, cards or modals with raw divs; compose library components, pass variant/size props, and style with Tailwind classes and theme tokens (bg-primary, text-primary-foreground, bg-card, text-muted-foreground, border-border, bg-muted, bg-accent). Use cn() from \"@/lib/utils\" for conditional classes. Put custom sections in components/ (components/ui/ is the library — never write there)." +
     "\n\nWebsite BACKEND (forms): any form that must SAVE data — contact, order, booking, quote, signup — must use the prebuilt LeadForm from \"@/components/site/lead-form\" (pass form name + fields array) or its submitForm(formName, data) helper for custom layouts. Submissions are stored in the site's inbox automatically; NEVER write a fake onSubmit that only shows a success message. Read submissions any time with the list_site_submissions tool and summarize them for the user (e.g. new orders on the bakery site)." +
+    "\n\nLive preview (no Vercel needed): preview_site builds the site inside an E2B sandbox, smoke-tests it, and returns a public preview URL (valid ~10 minutes) the user can open immediately — use it whenever the user wants to SEE or TEST a site before any Vercel deploy, and after edits (each call rebuilds fresh). If the build fails, the tool returns the build log — fix the errors and preview again. After a successful preview, verify it visually with browse_page on the preview URL (screenshot) and report what the page looks like." +
     "\n\nScheduled tasks: when the user asks for something recurring (daily briefings, periodic checks, reminders with research), use create_task with complete self-contained instructions — the future run has no memory of this chat beyond long-term memory. Confirm the schedule back to the user in plain words.";
 
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
@@ -426,6 +428,24 @@ export async function POST(req: Request) {
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not read site" };
           }
+        },
+      }),
+      preview_site: tool({
+        description:
+          "Build and serve a website (by slug) in an E2B sandbox and return a public LIVE PREVIEW URL (valid ~10 min) — no Vercel deploy needed. The sandbox build doubles as a test: on failure you get the build log to fix. After success, screenshot the URL with browse_page to verify it visually.",
+        inputSchema: z.object({ site: z.string().describe("Site slug") }),
+        execute: async ({ site }) => {
+          const r = await startSitePreview(site);
+          return { ...r, previewUrl: r.url };
+        },
+      }),
+      stop_preview: tool({
+        description: "Stop a website's live preview sandbox (by slug).",
+        inputSchema: z.object({ site: z.string().describe("Site slug") }),
+        execute: async ({ site }) => {
+          const s = await resolveSite(site);
+          if (!s) return { ok: false, error: `Site "${site}" not found` };
+          return stopSitePreview(s.id);
         },
       }),
       list_site_submissions: tool({
