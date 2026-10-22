@@ -39,8 +39,14 @@ def launch():
         return pw, pw.chromium.launch(args=args)
     except Exception as e:
         errs.append(str(e)[:150])
+    # Root in the sandbox: --with-deps also apt-installs Chromium's system
+    # libraries (libnss3, libnspr4, ...) which the base image lacks.
+    subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium-headless-shell"], check=False)
+    try:
+        return pw, pw.chromium.launch(args=args)
+    except Exception as e:
+        errs.append(str(e)[:150])
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium-headless-shell"], check=False)
     try:
         return pw, pw.chromium.launch(args=args)
     except Exception as e:
@@ -202,9 +208,11 @@ async function ensureSession(key: string, apiKey: string): Promise<PySession> {
   try {
     await sandbox.commands.run(`mkdir -p ${PB_DIR}`, { timeoutMs: 15_000 });
     await sandbox.files.write(`${PB_DIR}/driver.py`, DRIVER);
+    // Run the driver as root: it must pip-install Playwright and apt-install
+    // Chromium's system libraries on first run.
     await sandbox.commands.run(
       `nohup python3 ${PB_DIR}/driver.py > ${PB_DIR}/driver.log 2>&1 &`,
-      { timeoutMs: 15_000 }
+      { timeoutMs: 15_000, user: "root" } as any
     ).catch(() => {});
     // Wait for the driver to finish installing + launching (worst case minutes).
     // Poll via shell commands (hard per-call timeouts) — never files.read on a
