@@ -348,7 +348,37 @@ export interface PyBrowserResult {
   error?: string;
 }
 
+// Per-session mutex: the model may issue parallel tool calls, but the driver
+// has ONE page and ONE command channel — concurrent calls must queue.
+const sessionLocks = new Map<string, Promise<void>>();
+
+async function withSessionLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sessionLocks.get(key) || Promise.resolve();
+  let release: () => void = () => {};
+  const next = new Promise<void>((r) => {
+    release = r;
+  });
+  sessionLocks.set(key, prev.then(() => next));
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 export async function pyBrowserAction(
+  apiKey: string,
+  conversationId: string | null,
+  action: string,
+  args: Record<string, unknown> = {}
+): Promise<PyBrowserResult> {
+  return withSessionLock(keyOf(conversationId), () =>
+    pyBrowserActionInner(apiKey, conversationId, action, args)
+  );
+}
+
+async function pyBrowserActionInner(
   apiKey: string,
   conversationId: string | null,
   action: string,
