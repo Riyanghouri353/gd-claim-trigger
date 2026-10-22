@@ -932,7 +932,7 @@ export async function writeSiteFile(
  * automatically. Never touches the site's pages or custom components —
  * app/page.jsx is seeded at creation only.
  */
-async function syncScaffoldFiles(site: SiteRow): Promise<void> {
+export async function syncScaffoldFiles(site: SiteRow): Promise<void> {
   const all = scaffoldFiles(site.name, site.slug);
   const sb = getServiceClient();
   const rows = Object.entries(all)
@@ -948,7 +948,7 @@ async function syncScaffoldFiles(site: SiteRow): Promise<void> {
   }
 }
 
-async function getAllFiles(siteId: string): Promise<{ path: string; content: string }[]> {
+export async function getAllFiles(siteId: string): Promise<{ path: string; content: string }[]> {
   const { data } = await getServiceClient()
     .from("site_files")
     .select("path, content")
