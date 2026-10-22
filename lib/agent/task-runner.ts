@@ -39,6 +39,7 @@ import {
 } from "./tasks";
 import { listSubmissions } from "./submissions";
 import { startSitePreview, stopSitePreview } from "./site-preview";
+import { pyBrowserAction, apiTest } from "./pybrowser";
 
 /**
  * Headless task execution: runs an agent_tasks job with (nearly) the same
@@ -355,6 +356,46 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       description: "Close the interactive browser session.",
       inputSchema: z.object({}),
       execute: async () => browserClose(conversationId),
+    });
+    tools.py_browser = tool({
+      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/fill/type/click/submit/press/scroll/read/screenshot/close. Selectors: CSS or text=…. Session persists across calls. Link any screenshotPath in the report.",
+      inputSchema: z.object({
+        action: z.enum(["open", "fill", "type", "click", "submit", "press", "scroll", "read", "screenshot", "close"]),
+        url: z.string().optional(),
+        selector: z.string().optional(),
+        value: z.string().optional(),
+        key: z.string().optional(),
+        direction: z.enum(["up", "down"]).optional(),
+        amount: z.number().optional(),
+        screenshot: z.boolean().optional(),
+      }),
+      execute: async ({ action, ...rest }) => {
+        try {
+          return await pyBrowserAction(e2bKey, conversationId, action, rest);
+        } catch (e: any) {
+          return { ok: false, error: `Python browser failed: ${e?.message || e}` };
+        }
+      },
+    });
+    tools.api_test = tool({
+      description: "Test an HTTP API with Python requests: method/url/headers/body + assertions (expectStatus, bodyContains, jsonPath, jsonEquals). Returns status, time, body and per-check pass/fail.",
+      inputSchema: z.object({
+        method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
+        url: z.string(),
+        headers: z.record(z.string(), z.string()).optional(),
+        body: z.any().optional(),
+        expectStatus: z.number().optional(),
+        bodyContains: z.string().optional(),
+        jsonPath: z.string().optional(),
+        jsonEquals: z.any().optional(),
+      }),
+      execute: async (spec) => {
+        try {
+          return await apiTest(e2bKey, spec);
+        } catch (e: any) {
+          return { ok: false, error: `API test failed: ${e?.message || e}` };
+        }
+      },
     });
   }
 

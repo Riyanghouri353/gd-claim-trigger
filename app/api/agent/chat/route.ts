@@ -21,6 +21,7 @@ import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
 import { browsePage, browserOpen, browserAct, browserClose, getCachedScreenshot } from "@/lib/agent/browser";
+import { pyBrowserAction, apiTest } from "@/lib/agent/pybrowser";
 import {
   createSite,
   writeSiteFile,
@@ -171,7 +172,8 @@ export async function POST(req: Request) {
 
   if (e2bKey) {
     systemPrompt +=
-      "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL.";
+      "\n\nBrowser automation: you have browse_page (renders a page in real Chrome — JavaScript included — and reads it; can also screenshot) and an interactive browser (browser_open, browser_act, browser_close): a live cloud desktop you control with clicks (pixel coordinates on the screenshot), typing and key presses. Screenshots are shown to the user after every action, and a Watch-live link lets them observe. Prefer read_url for simple static pages; use the browser when a page needs JavaScript, interaction, or visual proof. To go to a new page inside the interactive browser, use browser_act with action=navigate and the URL." +
+      "\n\nPython automation (py_browser + api_test): for FORM FILLING and precise page interaction prefer py_browser — a Playwright (Python) browser driven by DOM selectors (fill/click/submit/scroll), far more reliable than pixel clicks; use the desktop browser only when a page needs visual aiming. Use api_test to verify HTTP APIs with assertions (status, body, JSON paths) instead of eyeballing raw responses.";
   }
 
   systemPrompt +=
@@ -617,6 +619,51 @@ export async function POST(req: Request) {
                 "Close the interactive browser session and free the sandbox. Use when the browsing task is finished.",
               inputSchema: z.object({}),
               execute: async () => browserClose(conversationId),
+            }),
+            py_browser: tool({
+              description:
+                "Python (Playwright) browser automation — PREFER this for FORM FILLING and precise interaction: it drives the page by DOM selectors, not pixels. Actions: open (go to URL, returns page text + screenshot), fill (selector + value), type, click (selector), submit (form selector, or Enter when omitted), press (key), scroll (direction/amount), read (page text), screenshot, close. Selectors: CSS (#id, [name='email'], button[type='submit'], .class) or Playwright text engine (text=Sign in). The session persists across calls in this conversation. Returns title, URL, page text (on open/read) and a screenshot after most actions.",
+              inputSchema: z.object({
+                action: z.enum(["open", "fill", "type", "click", "submit", "press", "scroll", "read", "screenshot", "close"]),
+                url: z.string().optional().describe("For open: full http(s) URL"),
+                selector: z.string().optional().describe("CSS or text= selector for fill/type/click/submit"),
+                value: z.string().optional().describe("For fill/type: the text to enter"),
+                key: z.string().optional().describe("For press: e.g. Enter, Tab, Escape, ArrowDown"),
+                direction: z.enum(["up", "down"]).optional().describe("For scroll"),
+                amount: z.number().optional().describe("For scroll: pixels (default 600)"),
+                screenshot: z.boolean().optional().describe("Force a screenshot with this action"),
+              }),
+              execute: async ({ action, url, selector, value, key, direction, amount, screenshot }) => {
+                try {
+                  return await pyBrowserAction(e2bKey, conversationId, action, {
+                    url, selector, value, key, direction, amount, screenshot,
+                  });
+                } catch (e: any) {
+                  return { ok: false, error: `Python browser failed: ${e?.message || e}` };
+                }
+              },
+              toModelOutput: browseModelOutput,
+            }),
+            api_test: tool({
+              description:
+                "Test an HTTP API with Python requests and get structured results + assertion checks. Use to verify endpoints, webhooks and your connectors' APIs. Provide method, url, optional headers/body, and expectations: expectStatus, bodyContains, jsonPath (dot path like data.0.id) with optional jsonEquals. Returns status, response time, headers, parsed body and per-check pass/fail.",
+              inputSchema: z.object({
+                method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
+                url: z.string().describe("Full http(s) URL"),
+                headers: z.record(z.string(), z.string()).optional(),
+                body: z.any().optional().describe("JSON body (object/array) or raw string"),
+                expectStatus: z.number().optional(),
+                bodyContains: z.string().optional(),
+                jsonPath: z.string().optional().describe("Dot path into the JSON response, e.g. data.items.0.name"),
+                jsonEquals: z.any().optional().describe("Expected value at jsonPath"),
+              }),
+              execute: async (spec) => {
+                try {
+                  return await apiTest(e2bKey, spec);
+                } catch (e: any) {
+                  return { ok: false, error: `API test failed: ${e?.message || e}` };
+                }
+              },
             }),
           }
         : {}),
