@@ -56,6 +56,16 @@ interface ConnectorRow {
   created_at: string;
 }
 
+interface TestAccountRow {
+  id: string;
+  site: string;
+  label: string;
+  email: string;
+  username: string;
+  generated: boolean;
+  created_at: string;
+}
+
 const AUTH_TYPES = [
   { value: "bearer", label: "Bearer token (Authorization header)" },
   { value: "header", label: "Custom header" },
@@ -149,6 +159,15 @@ export default function SettingsClient() {
   const [dService, setDService] = useState("");
   const [dBusy, setDBusy] = useState(false);
   const [dNote, setDNote] = useState("");
+  const [accounts, setAccounts] = useState<TestAccountRow[]>([]);
+  const [aSite, setASite] = useState("");
+  const [aLabel, setALabel] = useState("");
+  const [aEmail, setAEmail] = useState("");
+  const [aUsername, setAUsername] = useState("");
+  const [aPassword, setAPassword] = useState("");
+  const [aBusy, setABusy] = useState(false);
+  const [aMsg, setAMsg] = useState("");
+  const [aDomain, setADomain] = useState("example.com");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   async function load() {
@@ -174,6 +193,12 @@ export default function SettingsClient() {
     if (mr.ok) setMemories((await mr.json()).memories ?? []);
     if (er.ok) setE2bConfigured(!!(await er.json()).configured);
     if (cr.ok) setConnectors((await cr.json()).connectors ?? []);
+    const tar = await fetch("/api/agent/test-accounts").catch(() => null);
+    if (tar && tar.ok) {
+      const j = await tar.json();
+      setAccounts(j.accounts ?? []);
+      if (j.emailDomain) setADomain(j.emailDomain);
+    }
     if (sr.ok) {
       const j = await sr.json();
       setModel(j.chat_model || MODELS[0]);
@@ -184,6 +209,62 @@ export default function SettingsClient() {
   useEffect(() => {
     load();
   }, []);
+
+  async function addAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setABusy(true);
+    setAMsg("");
+    const res = await fetch("/api/agent/test-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site: aSite, label: aLabel, email: aEmail, username: aUsername, password: aPassword }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.account) {
+      setAccounts((prev) => [j.account, ...prev]);
+      setASite(""); setALabel(""); setAEmail(""); setAUsername(""); setAPassword("");
+      setAMsg("✅ Test account saved — your agent can now log in with it via secure tokens");
+    } else {
+      setAMsg("❌ " + (j.error || "Could not save the account"));
+    }
+    setABusy(false);
+  }
+
+  async function generateAccount() {
+    if (!aSite.trim()) {
+      setAMsg("❌ Enter the site first, then generate an identity for it");
+      return;
+    }
+    setABusy(true);
+    setAMsg("");
+    const res = await fetch("/api/agent/test-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generate: true, site: aSite }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.account) {
+      setAccounts((prev) => [j.account, ...prev]);
+      setAMsg(`✅ Identity generated: ${j.account.email} / ${j.account.username} — password is stored in the vault (the agent uses it via tokens, it is never shown in chat)`);
+    } else {
+      setAMsg("❌ " + (j.error || "Could not generate an identity"));
+    }
+    setABusy(false);
+  }
+
+  async function removeAccount(id: string) {
+    const res = await fetch(`/api/agent/test-accounts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (res.ok) setAccounts((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  async function saveDomain() {
+    const res = await fetch("/api/agent/test-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emailDomain: aDomain }),
+    });
+    if (res.ok) setAMsg("✅ Test email domain saved");
+  }
 
   function confirm(cs: ConfirmState) {
     setConfirmState(cs);
@@ -828,6 +909,87 @@ export default function SettingsClient() {
               {siteBusy ? "Verifying…" : "Save tokens"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <KeyRound className="size-4" />
+            </span>
+            Test accounts (sign-up & login)
+          </CardTitle>
+          <CardDescription>
+            Accounts your agent may use when testing sign-up/login flows or doing web tasks for
+            you. Passwords are AES-256 encrypted and <strong>never shown in chat</strong> — the
+            agent fills them through secure tokens, so they never pass through the conversation.
+            Add accounts for sites you test, or generate a fresh identity for a sign-up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Msg text={aMsg} />
+          <div className="space-y-2">
+            {accounts.length === 0 && (
+              <p className="text-sm text-muted-foreground">No test accounts yet.</p>
+            )}
+            {accounts.map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {a.site}
+                    {a.generated && <Badge variant="secondary" className="ml-2">generated</Badge>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[a.label, a.email, a.username].filter(Boolean).join(" · ") || "—"}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() =>
+                    confirm({
+                      title: "Delete this test account?",
+                      description: `The agent will no longer be able to log in to ${a.site} with it.`,
+                      actionLabel: "Delete",
+                      run: () => removeAccount(a.id),
+                    })
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={addAccount} className="space-y-2">
+            <Input value={aSite} onChange={(e) => setASite(e.target.value)} placeholder="Site — e.g. app.example.com or https://example.com" />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Input value={aLabel} onChange={(e) => setALabel(e.target.value)} placeholder="Label (optional)" />
+              <Input value={aUsername} onChange={(e) => setAUsername(e.target.value)} placeholder="Username (if the site uses one)" />
+              <Input value={aEmail} onChange={(e) => setAEmail(e.target.value)} placeholder="Email" type="email" />
+              <Input value={aPassword} onChange={(e) => setAPassword(e.target.value)} placeholder="Password" type="password" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={aBusy || !aSite.trim() || !aPassword}>
+                {aBusy && <Loader2 className="animate-spin" />}
+                Save account
+              </Button>
+              <Button type="button" variant="secondary" disabled={aBusy || !aSite.trim()} onClick={generateAccount}>
+                Generate identity instead
+              </Button>
+            </div>
+          </form>
+          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center">
+            <p className="text-xs text-muted-foreground sm:w-56">
+              Domain for generated emails. Use a domain whose inbox you control (or a catch-all)
+              if sign-ups need email verification.
+            </p>
+            <Input value={aDomain} onChange={(e) => setADomain(e.target.value)} placeholder="example.com" className="flex-1" />
+            <Button type="button" variant="outline" size="sm" onClick={saveDomain} className="shrink-0">
+              Save domain
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

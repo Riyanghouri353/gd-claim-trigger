@@ -3,6 +3,7 @@ import { runCode } from "./e2b";
 import { createAgentImageFile } from "./files";
 import { cacheScreenshot } from "./browser";
 import { assertPublicUrl } from "./connectors";
+import { resolveAccountField } from "./test-accounts";
 
 /**
  * Python browser automation: a persistent Playwright driver process runs
@@ -384,6 +385,26 @@ async function pyBrowserActionInner(
   action: string,
   args: Record<string, unknown> = {}
 ): Promise<PyBrowserResult> {
+  // Credential tokens: a fill/type value may contain
+  // {{account:<email|username|password>:<account id or site>}} — resolve it
+  // HERE, server-side, so the real secret goes straight to the sandbox and
+  // never enters the model's context or the chat transcript.
+  let usedPasswordToken = false;
+  if (typeof args.value === "string" && args.value.includes("{{account:")) {
+    const tokenRe = /\{\{account:(email|username|password):([^}]+)\}\}/g;
+    const matches = Array.from(args.value.matchAll(tokenRe));
+    let resolved = args.value;
+    for (const m of matches) {
+      const field = m[1] as "email" | "username" | "password";
+      const secret = await resolveAccountField(m[2].trim(), field).catch(() => null);
+      if (secret === null) {
+        return { ok: false, action, error: `No test account found for "${m[2].trim()}" — add it in Settings → Test accounts or generate an identity first` };
+      }
+      if (field === "password") usedPasswordToken = true;
+      resolved = resolved.split(m[0]).join(secret);
+    }
+    args = { ...args, value: resolved };
+  }
   const key = keyOf(conversationId);
   if (action === "close") {
     const s = sessions.get(key);
@@ -431,7 +452,8 @@ async function pyBrowserActionInner(
     url: res.url,
     title: res.title,
     text: res.text,
-    value: res.value,
+    // Never echo a filled password back into the model's context.
+    value: usedPasswordToken ? "••••••••" : res.value,
     elements: res.elements,
     error: res.ok ? undefined : res.error || "Action failed",
   };
