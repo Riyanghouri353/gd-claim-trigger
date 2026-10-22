@@ -819,7 +819,7 @@ export async function POST(req: Request) {
         system: systemPrompt,
         messages: modelMessages,
         tools,
-        stopWhen: stepCountIs(10),
+        stopWhen: stepCountIs(16),
         onFinish: async ({ text }) => {
           await markKeyUsed(keyRow.id, provider);
           if (conversationId) await persistTurn(conversationId, messages, text);
