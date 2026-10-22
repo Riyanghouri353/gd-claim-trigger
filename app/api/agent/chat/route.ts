@@ -685,7 +685,7 @@ export async function POST(req: Request) {
                 "Test HTTP APIs with Python requests and get structured results + assertion checks. Single call: method, url, optional headers/body, expectations (expectStatus, bodyContains, jsonPath like data.0.id, jsonEquals). MULTI-STEP flows: pass `steps` (array of the same fields) — steps run in order in one session; a step may extract values from its JSON response with extract: {varName: 'json.dot.path'} and later steps use {{varName}} in url/headers/body (e.g. login → extract token → call a protected endpoint with Authorization: Bearer {{token}}). Returns per-step status, time, checks and extracted variable names.",
               inputSchema: z.object({
                 method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
-                url: z.string().describe("Full http(s) URL"),
+                url: z.string().optional().describe("Full http(s) URL (single-call mode; not needed when steps are given)"),
                 headers: z.record(z.string(), z.string()).optional(),
                 body: z.any().optional().describe("JSON body (object/array) or raw string"),
                 expectStatus: z.number().optional(),
@@ -711,7 +711,10 @@ export async function POST(req: Request) {
               }),
               execute: async (spec) => {
                 try {
-                  return await apiTest(e2bKey, spec);
+                  if (!spec.steps?.length && !spec.url) {
+                    return { ok: false, error: "api_test needs a url (single call) or a steps array (multi-step flow)" };
+                  }
+                  return await apiTest(e2bKey, spec as any);
                 } catch (e: any) {
                   return { ok: false, error: `API test failed: ${e?.message || e}` };
                 }

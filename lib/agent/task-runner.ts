@@ -415,7 +415,7 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       description: "Test HTTP APIs with Python requests: single call (method/url/headers/body + expectStatus/bodyContains/jsonPath/jsonEquals) or multi-step via steps[] with extract {var: 'json.path'} and {{var}} substitution in later steps (login -> token -> protected call). Returns per-step status, checks, extracted var names.",
       inputSchema: z.object({
         method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
-        url: z.string(),
+        url: z.string().optional(),
         headers: z.record(z.string(), z.string()).optional(),
         body: z.any().optional(),
         expectStatus: z.number().optional(),
@@ -438,6 +438,9 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       }),
       execute: async (spec) => {
         try {
+          if (!spec.steps?.length && !spec.url) {
+            return { ok: false, error: "api_test needs a url (single call) or a steps array (multi-step flow)" };
+          }
           return await apiTest(e2bKey, spec as any);
         } catch (e: any) {
           return { ok: false, error: `API test failed: ${e?.message || e}` };
