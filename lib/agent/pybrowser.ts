@@ -33,19 +33,21 @@ def ensure_pw():
 def launch():
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
+    args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
     errs = []
     try:
-        return pw, pw.chromium.launch(args=["--no-sandbox"])
+        return pw, pw.chromium.launch(args=args)
     except Exception as e:
         errs.append(str(e)[:150])
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium-headless-shell"], check=False)
     try:
-        return pw, pw.chromium.launch(args=["--no-sandbox"])
+        return pw, pw.chromium.launch(args=args)
     except Exception as e:
         errs.append(str(e)[:150])
     for cand in ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]:
         if os.path.exists(cand):
-            return pw, pw.chromium.launch(executable_path=cand, args=["--no-sandbox"])
+            return pw, pw.chromium.launch(executable_path=cand, args=args)
     raise RuntimeError("no chromium available: " + " | ".join(errs))
 
 ensure_pw()
