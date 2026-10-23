@@ -376,7 +376,17 @@ with open(BASE + "/ready", "w") as f:
     f.write("1")
 
 last = 0.0
+last_hb = 0.0
 while True:
+    # Heartbeat: proves the driver loop is alive (the server probes this on
+    # session reuse — a dead driver must not brick the session forever).
+    if time.time() - last_hb > 2:
+        last_hb = time.time()
+        try:
+            with open(BASE + "/alive", "w") as f:
+                f.write(str(last_hb))
+        except Exception:
+            pass
     try:
         st = os.stat(CMD)
         if st.st_mtime > last:
@@ -453,7 +463,23 @@ async function ensureSession(key: string, apiKey: string): Promise<PySession> {
   if (existing) {
     existing.lastUsed = now;
     await existing.sandbox.setTimeout(SESSION_TTL_MS).catch(() => {});
-    return existing;
+    // Liveness probe: the driver writes a heartbeat every ~2s. If it's
+    // stale (or the sandbox is gone), this session is a zombie — every
+    // action would burn its full timeout. Drop it and rebuild instead.
+    const probe = await withTimeout(
+      existing.sandbox.commands.run(
+        `A=$(stat -c %Y ${PB_DIR}/alive 2>/dev/null || echo 0); N=$(date +%s); echo $((N - A))`,
+        { timeoutMs: 10_000 }
+      ),
+      12_000,
+      null
+    );
+    const age = probe ? parseInt((probe.stdout || "").trim(), 10) : NaN;
+    if (Number.isFinite(age) && age <= 25) {
+      return existing;
+    }
+    sessions.delete(key);
+    await existing.sandbox.kill().catch(() => {});
   }
 
   const sandbox = await Sandbox.create({ apiKey, timeoutMs: SESSION_TTL_MS });
@@ -608,7 +634,22 @@ async function pyBrowserActionInner(
     await new Promise((r) => setTimeout(r, 600));
   }
   if (!res) {
-    return { ok: false, action, error: "Browser action timed out — the page may be slow; try read/screenshot to see the state" };
+    // No response within the deadline: the driver or sandbox is wedged.
+    // Reset the session so the next call rebuilds instead of timing out
+    // forever, and transparently retry read-only/navigation actions once
+    // on the fresh session. (State-changing actions — click/submit/fill —
+    // are NOT retried: they may have partially taken effect.)
+    sessions.delete(key);
+    session.sandbox.kill().catch(() => {});
+    const SAFE_RETRY = ["open", "goto", "read", "screenshot", "inspect", "net_log", "net_rules", "wait_for"];
+    if (SAFE_RETRY.includes(action) && !args.__retried) {
+      return pyBrowserActionInner(apiKey, conversationId, action, { ...args, __retried: true });
+    }
+    return {
+      ok: false,
+      action,
+      error: "Browser action timed out — the browser session was reset, so please retry the action (it will start a fresh browser)",
+    };
   }
   const out: PyBrowserResult = {
     ok: !!res.ok,
