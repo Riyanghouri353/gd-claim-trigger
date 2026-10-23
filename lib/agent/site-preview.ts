@@ -37,6 +37,29 @@ function tail(text: string, n = 2500): string {
   return text.length > n ? text.slice(-n) : text;
 }
 
+/**
+ * Run a sandbox command without throwing: the E2B SDK throws a
+ * CommandExitError on non-zero exits, which used to swallow the entire
+ * npm/next build log behind a useless "exit status 1" — the agent then
+ * retried blind. Here the exit code and output always come back.
+ */
+async function runCmd(
+  sandbox: Sandbox,
+  cmd: string,
+  timeoutMs: number
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  try {
+    const r = await sandbox.commands.run(cmd, { timeoutMs });
+    return { exitCode: (r as any).exitCode ?? 0, stdout: (r as any).stdout || "", stderr: (r as any).stderr || "" };
+  } catch (e: any) {
+    return {
+      exitCode: typeof e?.exitCode === "number" ? e.exitCode : 1,
+      stdout: e?.stdout || "",
+      stderr: e?.stderr || String(e?.message || e),
+    };
+  }
+}
+
 async function killSession(siteId: string): Promise<void> {
   const s = sessions.get(siteId);
   if (!s) return;
@@ -84,8 +107,8 @@ export async function startSitePreview(idOrSlug: string): Promise<PreviewResult>
     sandbox = await Sandbox.create({ apiKey, timeoutMs: PREVIEW_TTL_MS });
 
     // Node is required for a Next.js site; check before doing real work.
-    const nodeCheck = await sandbox.commands.run("node -v && npm -v", { timeoutMs: 30_000 }).catch(() => null);
-    if (!nodeCheck || nodeCheck.exitCode !== 0) {
+    const nodeCheck = await runCmd(sandbox, "node -v && npm -v", 30_000);
+    if (nodeCheck.exitCode !== 0) {
       await sandbox.kill().catch(() => {});
       return { ok: false, site: site.slug, error: "The E2B sandbox has no Node.js runtime, so it cannot build a Next.js site" };
     }
@@ -97,9 +120,10 @@ export async function startSitePreview(idOrSlug: string): Promise<PreviewResult>
       if (parts.length) dirs.add(parts.join("/"));
     }
     if (dirs.size) {
-      await sandbox.commands.run(
+      await runCmd(
+        sandbox,
         "mkdir -p " + Array.from(dirs).map((d) => `${WORKDIR}/${d}`).join(" "),
-        { timeoutMs: 30_000 }
+        30_000
       );
     }
     for (const f of files) {
@@ -107,15 +131,13 @@ export async function startSitePreview(idOrSlug: string): Promise<PreviewResult>
     }
 
     // Install + build — the build IS the agent's automated test of the site.
-    const install = await sandbox.commands.run("cd " + WORKDIR + " && npm install --no-audit --no-fund", {
-      timeoutMs: 420_000,
-    });
+    const install = await runCmd(sandbox, "cd " + WORKDIR + " && npm install --no-audit --no-fund", 420_000);
     if (install.exitCode !== 0) {
       const log = tail((install.stdout || "") + "\n" + (install.stderr || ""));
       await sandbox.kill().catch(() => {});
-      return { ok: false, site: site.slug, buildOk: false, buildLog: log, error: "npm install failed in the sandbox" };
+      return { ok: false, site: site.slug, buildOk: false, buildLog: log, error: "npm install failed in the sandbox — see buildLog" };
     }
-    const build = await sandbox.commands.run("cd " + WORKDIR + " && npm run build", { timeoutMs: 300_000 });
+    const build = await runCmd(sandbox, "cd " + WORKDIR + " && npm run build", 300_000);
     const buildLog = tail((build.stdout || "") + "\n" + (build.stderr || ""));
     if (build.exitCode !== 0) {
       await sandbox.kill().catch(() => {});
@@ -180,6 +202,6 @@ export async function startSitePreview(idOrSlug: string): Promise<PreviewResult>
     try {
       await sandbox?.kill();
     } catch { /* ignore */ }
-    return { ok: false, site: site.slug, error: `Preview failed: ${e?.message || e}` };
+    return { ok: false, site: site.slug, error: `Preview failed: ${e?.message || e}${e?.stderr ? " — " + tail(String(e.stderr), 800) : ""}${e?.stdout ? " — " + tail(String(e.stdout), 400) : ""}` };
   }
 }
