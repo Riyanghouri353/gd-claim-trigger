@@ -35,6 +35,7 @@ import {
 import { createTask, listTasks, describeSchedule } from "@/lib/agent/tasks";
 import { listSubmissions } from "@/lib/agent/submissions";
 import { startSitePreview, stopSitePreview } from "@/lib/agent/site-preview";
+import { auditSiteQuality } from "@/lib/agent/site-quality";
 
 export const maxDuration = 60;
 
@@ -191,6 +192,9 @@ export async function POST(req: Request) {
     "\n\nLive preview (no Vercel needed): preview_site builds the site inside an E2B sandbox, smoke-tests it, and returns a public preview URL (valid ~10 minutes) the user can open immediately — use it whenever the user wants to SEE or TEST a site before any Vercel deploy, and after edits (each call rebuilds fresh). If the build fails, the tool returns the build log — fix the errors and preview again. After a successful preview, verify it visually with browse_page on the preview URL (screenshot) and report what the page looks like." +
     "\n\nScheduled tasks: when the user asks for something recurring (daily briefings, periodic checks, reminders with research), use create_task with complete self-contained instructions — the future run has no memory of this chat beyond long-term memory. Confirm the schedule back to the user in plain words.";
 
+  systemPrompt +=
+    "\n\nSENIOR WEBSITE BUILDER PROTOCOL — build like a developer with 10 years of experience: (1) BRIEF: before writing code, pin down from the request (plus sensible assumptions you state briefly): the business, the target visitor, the ONE primary conversion action, the routes needed, and the brand feel. Do not stall with questions when a reasonable assumption works. (2) SITE DATA FIRST: write lib/site-data.js before pages — real name, tagline, a 50–160 character search description (NEVER leave the starter placeholder text), keywords, nav that matches the routes you will build, the contact details the user gave, primaryCta, sitemapRoutes, and a deliberate brand color in theme.primary (not the default black unless the brand is truly monochrome). (3) ARCHITECTURE: the scaffold layout already provides the header, footer, SEO/Open Graph metadata, sitemap and robots — pages are CONTENT ONLY (never render your own header, footer or main landmark; the layout supplies them). Put reusable content (services, products, plans, FAQs, testimonials) in lib/ data files, not hard-coded inside page JSX. Compose pages from the section library first — HeroSection, FeatureGrid, StatsSection, StepsSection, TestimonialGrid, PricingSection, FaqSection, CtaSection from \"@/components/sections/marketing\", ContactSection from \"@/components/sections/contact\", PageIntro/EmptyState from \"@/components/sections/states\" — plus shadcn/ui primitives; write a custom component only when no section fits. (4) COPY: real, specific, benefit-led copy for THIS business — no lorem ipsum, no 'Welcome to our website', and NO invented statistics, testimonials, reviews or client logos the user did not provide (when proof is missing, use process/guarantee/FAQ sections instead of fake proof). Every page gets exactly one h1 and the primary CTA above the fold and again at the end. (5) CRAFT: mobile-first responsive with sm/md/lg intent, semantic heading order, labelled fields, alt text on images, intact focus states, touch targets at least 40px, no horizontal overflow, no dead href='#' links, rel='noreferrer' on target=_blank links, and next/image (not raw img) for raster images — images.unsplash.com and images.pexels.com URLs are preconfigured. (6) FORMS: LeadForm/submitForm only — a form that does not save submissions is a defect, not a design choice. (7) QUALITY GATE — a site is not 'done' until ALL of these pass: audit_site_quality (fix every error and the important warnings, then re-audit), preview_site (the production build must pass — fix errors from the build log), a visual check of the preview URL via browse_page/py_browser (judge the screenshot like a designer: hierarchy, spacing, overflow), and a run_site_test pass over the key flow (navigation + a form submit that lands in list_site_submissions). (8) REPORT like a senior dev: routes and sections built, the audit score, build/smoke results, and exactly what the user still needs to provide (real photos, prices, contact details) — never a vague 'done'.";
+
   const DEFAULT_MODEL: Record<KeyProvider, string> = {
     groq: "openai/gpt-oss-120b",
     gemini: "gemini-2.5-flash",
@@ -343,7 +347,7 @@ export async function POST(req: Request) {
               name: site.name,
               liveUrl: `https://${site.slug}.${SITE_APEX}`,
               scaffoldFiles: fileCount,
-              note: "Scaffold ready. Now write the real pages with write_site_file, then deploy_site target=preview.",
+              note: "Scaffold ready (shared layout with header/footer/SEO, section library in @/components/sections, robots + sitemap). FIRST write lib/site-data.js — real brand, tagline, 50–160 char SEO description, nav, contact, brand color — then compose pages from the section library, then run audit_site_quality and fix what it flags BEFORE preview_site.",
             };
           } catch (e: any) {
             return { ok: false, error: e?.message || "Could not create site" };
@@ -437,6 +441,12 @@ export async function POST(req: Request) {
             return { ok: false, error: e?.message || "Could not read site" };
           }
         },
+      }),
+      audit_site_quality: tool({
+        description:
+          "Run the senior quality audit on a website (by slug): scores it 0–100 and lists concrete issues with fixes — placeholder/lorem copy, forms that don't save, missing h1, dead links, raw buttons/inputs instead of the component library, missing alt text, starter SEO text, default brand color. Run it after writing pages and fix every error before preview_site/deploy.",
+        inputSchema: z.object({ site: z.string().describe("Site slug") }),
+        execute: async ({ site }) => auditSiteQuality(site),
       }),
       preview_site: tool({
         description:
