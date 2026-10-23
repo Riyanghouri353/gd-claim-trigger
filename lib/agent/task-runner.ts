@@ -39,6 +39,7 @@ import {
 } from "./tasks";
 import { listSubmissions } from "./submissions";
 import { startSitePreview, stopSitePreview } from "./site-preview";
+import { auditSiteQuality } from "./site-quality";
 import { pyBrowserAction, apiTest, runSiteTest } from "./pybrowser";
 import { listTestAccounts, generateTestIdentity } from "./test-accounts";
 
@@ -97,7 +98,8 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
     "If something blocks you, say exactly what in the report instead of failing silently." +
     "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values." +
     "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); fill credentials ONLY via {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} tokens. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task." +
-    "\n\nNETWORK INTERCEPTION: py_browser net_log shows the requests a page made (method/URL/status/payload/response body) — use it to prove a form really called its API. net_intercept (pattern = URL substring or * glob; set it BEFORE the triggering action) rewrites traffic: mode=mock answers with your status/body (error & edge-case tests without touching the backend), mode=block aborts matches, mode=modify rewrites the request (newUrl, addHeaders, removeHeaders, method, postData — e.g. strip Authorization on the user's own site and verify rejection). Rules persist until net_stop — always net_stop at the end and state which rules were active. evaluate runs JavaScript in the page when clicks can't reach what you need.";
+    "\n\nNETWORK INTERCEPTION: py_browser net_log shows the requests a page made (method/URL/status/payload/response body) — use it to prove a form really called its API. net_intercept (pattern = URL substring or * glob; set it BEFORE the triggering action) rewrites traffic: mode=mock answers with your status/body (error & edge-case tests without touching the backend), mode=block aborts matches, mode=modify rewrites the request (newUrl, addHeaders, removeHeaders, method, postData — e.g. strip Authorization on the user's own site and verify rejection). Rules persist until net_stop — always net_stop at the end and state which rules were active. evaluate runs JavaScript in the page when clicks can't reach what you need." +
+    "\n\nSENIOR WEBSITE BUILDER PROTOCOL (when a task creates or edits a website): work like a senior developer — (1) brief: business, target visitor, ONE primary conversion action, routes, brand feel (state assumptions in the report); (2) write lib/site-data.js FIRST (real tagline, 50–160 char SEO description — never the starter placeholder — nav matching routes, contact details, deliberate theme.primary brand color); (3) the scaffold layout already provides header/footer/SEO metadata/sitemap/robots — pages are content only, never render your own header/footer/main; keep content data in lib/ files; compose pages from @/components/sections (marketing, contact, states) + shadcn/ui primitives before writing custom components; (4) real benefit-led copy only — no lorem ipsum, no invented stats/testimonials/logos; exactly one h1 per page; primary CTA above the fold and at the end; (5) forms ONLY via LeadForm/submitForm; (6) QUALITY GATE before reporting done: audit_site_quality (fix all errors + key warnings, re-audit), preview_site (production build must pass), visual check of the preview URL, and a run_site_test pass on the key flow; report routes, audit score, build result, and what the user still needs to provide.";
   return prompt;
 }
 
@@ -260,6 +262,11 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
         if (!s) return { ok: false, error: `Site "${site}" not found` };
         return stopSitePreview(s.id);
       },
+    }),
+    audit_site_quality: tool({
+      description: "Senior quality audit of a website (by slug): 0–100 score + concrete issues/fixes (placeholder copy, non-saving forms, SEO, a11y, library discipline). Fix errors before preview/deploy.",
+      inputSchema: z.object({ site: z.string() }),
+      execute: async ({ site }) => auditSiteQuality(site),
     }),
     create_task: tool({
       description: "Create another scheduled task (e.g. the user asked for a recurring job). Schedules: daily/weekly at time_of_day HH:MM in a timezone, or interval every interval_minutes (min 15).",
