@@ -10,7 +10,7 @@ import { getHostingConfig } from "./hosting";
  */
 
 export const SITE_APEX = "veritask.site";
-const MAX_FILES = 60;
+const MAX_FILES = 90;
 const MAX_FILE_CHARS = 200_000;
 
 export interface SiteRow {
@@ -369,6 +369,474 @@ export {
 `,
 };
 
+/**
+ * Senior-developer section library: production-grade, composable page
+ * sections (hero, features, pricing, FAQ, contact…) built on the shadcn/ui
+ * primitives. The agent composes these instead of inventing layout markup
+ * section by section — consistent spacing, semantics and accessibility.
+ */
+const SECTION_FILES: Record<string, string> = {
+  "components/sections/site-shell.jsx": `import Link from "next/link";
+import { siteData } from "@/lib/site-data";
+import { cn } from "@/lib/utils";
+
+export function Container({ className, ...props }) {
+  return <div className={cn("mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8", className)} {...props} />;
+}
+
+export function Section({ className, ...props }) {
+  return <section className={cn("py-16 sm:py-20 lg:py-24", className)} {...props} />;
+}
+
+export function SectionHeading({ eyebrow, title, description, align = "center", className }) {
+  return (
+    <div className={cn("max-w-2xl", align === "center" ? "mx-auto text-center" : "text-left", className)}>
+      {eyebrow ? (
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-primary">{eyebrow}</p>
+      ) : null}
+      <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      {description ? (
+        <p className="mt-4 text-pretty text-base leading-7 text-muted-foreground sm:text-lg">{description}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function SiteFooter() {
+  const year = new Date().getFullYear();
+  return (
+    <footer className="border-t bg-muted/30">
+      <Container className="grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <p className="text-base font-semibold tracking-tight">{siteData.name}</p>
+          <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{siteData.tagline}</p>
+        </div>
+        <nav aria-label="Footer">
+          <p className="text-sm font-semibold">Explore</p>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {siteData.nav.map((item) => (
+              <li key={item.href}>
+                <Link className="hover:text-foreground" href={item.href}>{item.label}</Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div>
+          <p className="text-sm font-semibold">Contact</p>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {siteData.contact.email ? <li>{siteData.contact.email}</li> : null}
+            {siteData.contact.phone ? <li>{siteData.contact.phone}</li> : null}
+            {siteData.contact.location ? <li>{siteData.contact.location}</li> : null}
+          </ul>
+        </div>
+        <div>
+          <p className="text-sm font-semibold">Get started</p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Tell us what you need and we will reply with clear next steps.
+          </p>
+          <Link href={siteData.primaryCta.href} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">
+            {siteData.primaryCta.label}
+          </Link>
+        </div>
+      </Container>
+      <div className="border-t py-5">
+        <Container className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <p>© {year} {siteData.name}. All rights reserved.</p>
+          <p>Built with a production-grade Next.js scaffold.</p>
+        </Container>
+      </div>
+    </footer>
+  );
+}
+`,
+  "components/sections/site-header.jsx": `"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { ArrowRight, Menu, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { siteData } from "@/lib/site-data";
+import { Container } from "@/components/sections/site-shell";
+
+export function SiteHeader() {
+  const [open, setOpen] = useState(false);
+  return (
+    <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur">
+      <Container className="flex h-16 items-center justify-between gap-4">
+        <Link href="/" className="text-base font-semibold tracking-tight" aria-label={siteData.name + " — home"}>
+          {siteData.name}
+        </Link>
+        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+          {siteData.nav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="hidden md:block">
+          <Button asChild size="sm">
+            <Link href={siteData.primaryCta.href}>
+              {siteData.primaryCta.label} <ArrowRight />
+            </Link>
+          </Button>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          aria-expanded={open}
+          aria-label={open ? "Close menu" : "Open menu"}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? <X /> : <Menu />}
+        </Button>
+      </Container>
+      {open ? (
+        <nav aria-label="Mobile" className="border-t md:hidden">
+          <Container className="grid gap-1 py-4">
+            {siteData.nav.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className="rounded-md px-3 py-2.5 text-sm hover:bg-accent"
+              >
+                {item.label}
+              </Link>
+            ))}
+            <Button asChild className="mt-2">
+              <Link href={siteData.primaryCta.href} onClick={() => setOpen(false)}>
+                {siteData.primaryCta.label}
+              </Link>
+            </Button>
+          </Container>
+        </nav>
+      ) : null}
+    </header>
+  );
+}
+`,
+  "components/sections/marketing.jsx": `import Link from "next/link";
+import { ArrowRight, Check, Star } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Container, Section, SectionHeading } from "@/components/sections/site-shell";
+import { cn } from "@/lib/utils";
+
+export function HeroSection({ eyebrow, title, description, primaryCta, secondaryCta, children }) {
+  return (
+    <Section className="overflow-hidden pb-14 pt-14 sm:pt-20">
+      <Container className="text-center">
+        {eyebrow ? (
+          <Badge variant="secondary" className="mb-5">{eyebrow}</Badge>
+        ) : null}
+        <h1 className="mx-auto max-w-3xl text-balance text-4xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
+          {title}
+        </h1>
+        {description ? (
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
+        ) : null}
+        {(primaryCta || secondaryCta) && (
+          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            {primaryCta ? (
+              <Button asChild size="lg">
+                <Link href={primaryCta.href}>{primaryCta.label} <ArrowRight /></Link>
+              </Button>
+            ) : null}
+            {secondaryCta ? (
+              <Button asChild size="lg" variant="outline">
+                <Link href={secondaryCta.href}>{secondaryCta.label}</Link>
+              </Button>
+            ) : null}
+          </div>
+        )}
+        {children}
+      </Container>
+    </Section>
+  );
+}
+
+export function FeatureGrid({ eyebrow, title, description, features = [] }) {
+  return (
+    <Section>
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((f) => (
+            <Card key={f.title} className="h-full">
+              <CardHeader>
+                {f.icon ? <f.icon className="mb-2 size-6 text-primary" aria-hidden="true" /> : null}
+                <CardTitle>{f.title}</CardTitle>
+                <CardDescription className="leading-6">{f.text}</CardDescription>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
+export function StatsSection({ stats = [] }) {
+  return (
+    <Section className="border-y bg-muted/30 py-12 sm:py-14">
+      <Container>
+        <dl className="grid gap-8 text-center sm:grid-cols-3">
+          {stats.map((s) => (
+            <div key={s.label}>
+              <dt className="order-2 mt-1 block text-sm text-muted-foreground">{s.label}</dt>
+              <dd className="text-4xl font-bold tracking-tight">{s.value}</dd>
+              {s.detail ? <dd className="mt-1 text-sm text-muted-foreground">{s.detail}</dd> : null}
+            </div>
+          ))}
+        </dl>
+      </Container>
+    </Section>
+  );
+}
+
+export function StepsSection({ eyebrow, title, description, steps = [] }) {
+  return (
+    <Section>
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <ol className="mt-12 grid gap-4 md:grid-cols-3">
+          {steps.map((s, i) => (
+            <li key={s.title}>
+              <Card className="h-full">
+                <CardHeader>
+                  <span className="mb-3 flex size-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                    {i + 1}
+                  </span>
+                  <CardTitle>{s.title}</CardTitle>
+                  <CardDescription className="leading-6">{s.text}</CardDescription>
+                </CardHeader>
+              </Card>
+            </li>
+          ))}
+        </ol>
+      </Container>
+    </Section>
+  );
+}
+
+export function TestimonialGrid({ eyebrow, title, description, testimonials = [] }) {
+  return (
+    <Section className="bg-muted/30">
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <div className="mt-12 grid gap-4 md:grid-cols-3">
+          {testimonials.map((t) => (
+            <Card key={t.name} className="h-full">
+              <CardContent className="flex h-full flex-col pt-6">
+                <div className="flex gap-0.5 text-primary" aria-label="5 out of 5 stars">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <Star key={i} className="size-4 fill-current" aria-hidden="true" />
+                  ))}
+                </div>
+                <blockquote className="mt-4 flex-1 text-pretty leading-7">“{t.quote}”</blockquote>
+                <div className="mt-6 flex items-center gap-3">
+                  <Avatar>
+                    <AvatarFallback>
+                      {t.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-sm font-semibold">{t.name}</p>
+                    {t.role ? <p className="text-sm text-muted-foreground">{t.role}</p> : null}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
+export function PricingSection({ eyebrow, title, description, plans = [] }) {
+  return (
+    <Section>
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <div className="mt-12 grid items-stretch gap-4 lg:grid-cols-3">
+          {plans.map((p) => (
+            <Card key={p.name} className={cn("flex h-full flex-col", p.featured && "border-primary shadow-md")}>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>{p.name}</CardTitle>
+                  {p.featured ? <Badge>Most popular</Badge> : null}
+                </div>
+                <CardDescription>{p.description}</CardDescription>
+                <p className="pt-3">
+                  <span className="text-4xl font-bold tracking-tight">{p.price}</span>
+                  {p.period ? <span className="text-sm text-muted-foreground"> {p.period}</span> : null}
+                </p>
+              </CardHeader>
+              <CardContent className="flex-1">
+                <ul className="space-y-2.5 text-sm">
+                  {(p.features || []).map((f) => (
+                    <li key={f} className="flex gap-2.5">
+                      <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+              <CardFooter>
+                <Button asChild className="w-full" variant={p.featured ? "default" : "outline"}>
+                  <Link href={p.ctaHref || "#contact"}>{p.cta || "Get started"}</Link>
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
+export function FaqSection({ eyebrow, title, description, faqs = [] }) {
+  return (
+    <Section>
+      <Container className="max-w-3xl">
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <Accordion type="single" collapsible className="mt-10">
+          {faqs.map((f, i) => (
+            <AccordionItem key={f.q} value={"faq-" + i}>
+              <AccordionTrigger>{f.q}</AccordionTrigger>
+              <AccordionContent className="leading-7">{f.a}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </Container>
+    </Section>
+  );
+}
+
+export function CtaSection({ title, description, cta }) {
+  return (
+    <Section className="pt-0">
+      <Container>
+        <div className="rounded-2xl bg-primary px-6 py-12 text-center text-primary-foreground sm:px-12">
+          <h2 className="mx-auto max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+          {description ? (
+            <p className="mx-auto mt-4 max-w-xl text-pretty leading-7 text-primary-foreground/80">{description}</p>
+          ) : null}
+          {cta ? (
+            <Button asChild size="lg" variant="secondary" className="mt-8">
+              <Link href={cta.href}>{cta.label} <ArrowRight /></Link>
+            </Button>
+          ) : null}
+        </div>
+      </Container>
+    </Section>
+  );
+}
+`,
+  "components/sections/contact.jsx": `import { Mail, MapPin, Phone } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { LeadForm } from "@/components/site/lead-form";
+import { Container, Section, SectionHeading } from "@/components/sections/site-shell";
+import { siteData } from "@/lib/site-data";
+
+const DEFAULT_FIELDS = [
+  { name: "name", label: "Your name", type: "text", required: true, placeholder: "Full name" },
+  { name: "email", label: "Email", type: "email", required: true, placeholder: "you@example.com" },
+  { name: "message", label: "Message", type: "textarea", required: true, placeholder: "How can we help?" },
+];
+
+export function ContactSection({
+  eyebrow = "Contact",
+  title = "Contact us",
+  description = "Send a message and we will get back to you soon.",
+  form = "contact",
+  fields = DEFAULT_FIELDS,
+  submitLabel = "Send message",
+}) {
+  const details = [
+    { icon: Mail, label: "Email", value: siteData.contact.email },
+    { icon: Phone, label: "Phone", value: siteData.contact.phone },
+    { icon: MapPin, label: "Location", value: siteData.contact.location },
+  ].filter((d) => d.value);
+  return (
+    <Section id="contact">
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <div className="mx-auto mt-12 grid max-w-5xl gap-8 lg:grid-cols-[1fr_1.2fr]">
+          <div className="space-y-5">
+            {details.map((d) => (
+              <div key={d.label} className="flex items-start gap-4">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <d.icon className="size-5" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold">{d.label}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{d.value}</p>
+                </div>
+              </div>
+            ))}
+            <p className="text-sm leading-6 text-muted-foreground">
+              Prefer to talk first? Send the form and include your phone number — we reply with clear next steps, not a sales script.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <LeadForm form={form} fields={fields} submitLabel={submitLabel} />
+            </CardContent>
+          </Card>
+        </div>
+      </Container>
+    </Section>
+  );
+}
+`,
+  "components/sections/states.jsx": `import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Container, Section } from "@/components/sections/site-shell";
+
+export function EmptyState({ icon: Icon, title, text, actionLabel, actionHref }) {
+  return (
+    <div className="rounded-xl border border-dashed p-10 text-center">
+      {Icon ? <Icon className="mx-auto size-8 text-muted-foreground" aria-hidden="true" /> : null}
+      <h3 className="mt-4 text-lg font-semibold">{title}</h3>
+      {text ? <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{text}</p> : null}
+      {actionLabel && actionHref ? (
+        <Button asChild className="mt-6">
+          <Link href={actionHref}>{actionLabel}</Link>
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+export function PageIntro({ eyebrow, title, description }) {
+  return (
+    <Section className="pb-8 pt-14 sm:pt-16">
+      <Container>
+        {eyebrow ? (
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-primary">{eyebrow}</p>
+        ) : null}
+        <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-5xl">{title}</h1>
+        {description ? (
+          <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
+        ) : null}
+      </Container>
+    </Section>
+  );
+}
+`,
+};
+
+
 /** Public base URL of the agent app — generated sites POST form data here. */
 export const AGENT_PUBLIC_URL = "https://gd-claim.ghouri.site";
 
@@ -533,6 +1001,49 @@ export function validateSlug(slug: string): string | null {
   return null;
 }
 
+/**
+ * Per-site content + brand config. Unlike the rest of the scaffold this
+ * file belongs to the SITE: the agent edits it (name, tagline, SEO
+ * description, nav, contact details, brand color) and it is therefore
+ * excluded from the deploy-time scaffold force-sync.
+ */
+function siteDataFile(name: string, slug: string): string {
+  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const safeName = esc(name);
+  return `// Site content + brand configuration — the agent edits THIS file to
+// rebrand or restructure the site; layout, header, footer and SEO routes
+// all read from it. Keep nav hrefs in sync with the pages under app/.
+export const siteData = {
+  name: "${safeName}",
+  tagline: "Built to convert visitors into customers",
+  description: "${safeName} — tell visitors, in one or two sentences, exactly what you offer, who it is for, and why it is the right choice. Rewrite this: it is the site's search-engine and social-share description.",
+  url: "https://${slug}.${SITE_APEX}",
+  keywords: ["${safeName}"],
+  nav: [
+    { label: "Home", href: "/" },
+    { label: "Services", href: "/#services" },
+    { label: "FAQ", href: "/#faq" },
+    { label: "Contact", href: "/#contact" },
+  ],
+  primaryCta: { label: "Get started", href: "/#contact" },
+  contact: {
+    email: "",
+    phone: "",
+    location: "",
+  },
+  theme: {
+    // Brand color (any CSS color). Applied to primary buttons, links,
+    // accents and the focus ring across the whole site.
+    primary: "oklch(0.205 0 0)",
+    primaryForeground: "oklch(0.985 0 0)",
+    radius: "0.625rem",
+  },
+  sitemapRoutes: ["/"],
+};
+`;
+}
+
+
 function scaffoldFiles(name: string, slug: string): Record<string, string> {
   const base: Record<string, string> = {
     "package.json": JSON.stringify(
@@ -567,7 +1078,17 @@ function scaffoldFiles(name: string, slug: string): Record<string, string> {
       2
     ),
     "next.config.mjs": `/** @type {import('next').NextConfig} */
-const nextConfig = { reactStrictMode: true };
+const nextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
+  images: {
+    formats: ["image/avif", "image/webp"],
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "https", hostname: "images.pexels.com" },
+    ],
+  },
+};
 export default nextConfig;
 `,
     "postcss.config.mjs": `export default { plugins: { "@tailwindcss/postcss": {} } };
@@ -579,22 +1100,58 @@ export default nextConfig;
     ),
     "app/layout.jsx": `import { Inter } from "next/font/google";
 import "./globals.css";
+import { siteData } from "@/lib/site-data";
+import { SiteHeader } from "@/components/sections/site-header";
+import { SiteFooter } from "@/components/sections/site-shell";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata = {
-  title: "${name.replace(/"/g, "")}",
-  description: "${name.replace(/"/g, "")} — built with Riyan Agent",
+  metadataBase: new URL(siteData.url),
+  title: {
+    default: siteData.name + " — " + siteData.tagline,
+    template: "%s | " + siteData.name,
+  },
+  description: siteData.description,
+  keywords: siteData.keywords,
+  openGraph: {
+    type: "website",
+    url: siteData.url,
+    siteName: siteData.name,
+    title: siteData.name + " — " + siteData.tagline,
+    description: siteData.description,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteData.name + " — " + siteData.tagline,
+    description: siteData.description,
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }) {
+  const themeStyle = {
+    "--primary": siteData.theme.primary,
+    "--primary-foreground": siteData.theme.primaryForeground,
+    "--ring": siteData.theme.primary,
+    "--radius": siteData.theme.radius,
+  };
   return (
     <html lang="en">
-      <body className={inter.variable + " antialiased"}>{children}</body>
+      <body className={inter.variable + " antialiased"} style={themeStyle}>
+        <a
+          href="#content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+        >
+          Skip to content
+        </a>
+        <SiteHeader />
+        <main id="content">{children}</main>
+        <SiteFooter />
+      </body>
     </html>
   );
-}
-`,
+}`,
     "app/globals.css": `@import "tailwindcss";
 @import "tw-animate-css";
 
@@ -686,104 +1243,151 @@ export default function RootLayout({ children }) {
     @apply bg-background text-foreground;
     font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   }
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 `,
-    "app/page.jsx": `import { ArrowRight, BarChart3, ShieldCheck, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { LeadForm } from "@/components/site/lead-form";
+    "app/page.jsx": `import { Compass, PenTool, Rocket, SearchCheck } from "lucide-react";
+import {
+  CtaSection,
+  FaqSection,
+  FeatureGrid,
+  HeroSection,
+  StatsSection,
+  StepsSection,
+} from "@/components/sections/marketing";
+import { ContactSection } from "@/components/sections/contact";
+import { siteData } from "@/lib/site-data";
 
 const features = [
-  { icon: Zap, title: "Fast by default", text: "Built on Next.js with the shadcn/ui component library — no hand-rolled UI." },
-  { icon: ShieldCheck, title: "Reliable", text: "Accessible Radix primitives under every interactive element." },
-  { icon: BarChart3, title: "Ready to grow", text: "Cards, tabs, dialogs, accordions and forms are already installed." },
+  {
+    icon: Compass,
+    title: "Strategy before pixels",
+    text: "Every page starts from the visitor's goal: one clear offer, one primary action, no filler sections.",
+  },
+  {
+    icon: PenTool,
+    title: "A real design system",
+    text: "Pages are composed from a preinstalled component and section library — consistent spacing, type and states everywhere.",
+  },
+  {
+    icon: SearchCheck,
+    title: "SEO and accessibility built in",
+    text: "Semantic landmarks, one h1 per page, meta and Open Graph data, sitemap and robots — handled by the scaffold.",
+  },
+  {
+    icon: Rocket,
+    title: "Verified before it ships",
+    text: "The agent builds the production bundle, audits the result and fixes issues before showing you a preview.",
+  },
+];
+
+const steps = [
+  { title: "Brief", text: "Audience, offer and the one action the page must drive — captured in the site data file." },
+  { title: "Build", text: "Content-led sections composed from the library, with real copy written for this business." },
+  { title: "Verify", text: "Production build, automated quality audit, visual check — then a shareable preview link." },
 ];
 
 const faqs = [
-  { q: "How do I change this page?", a: "Just ask the agent in chat — it rewrites the files and redeploys a preview." },
-  { q: "Which components can I use?", a: "Button, Card, Badge, Input, Textarea, Label, Accordion, Tabs, Dialog, Separator and Avatar from @/components/ui, plus all Lucide icons." },
+  {
+    q: "How do I change this site?",
+    a: "Ask the agent in chat. It edits the site data, pages and components, rebuilds, audits and sends a fresh preview.",
+  },
+  {
+    q: "Does the contact form really work?",
+    a: "Yes — submissions are stored in the site owner's inbox in the agent, ready to read or summarize.",
+  },
+  {
+    q: "Can it match my brand?",
+    a: "Yes. The brand color, radius, name, tagline, navigation and contact details all live in lib/site-data.js.",
+  },
 ];
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <p className="text-base font-semibold tracking-tight">${name.replace(/</g, "")}</p>
-        <Button size="sm">
-          Get started <ArrowRight />
-        </Button>
-      </header>
-
-      <section className="mx-auto max-w-6xl px-6 pb-20 pt-14 text-center">
-        <Badge variant="secondary" className="mb-4">New website</Badge>
-        <h1 className="mx-auto max-w-3xl text-4xl font-bold tracking-tight sm:text-6xl">
-          ${name.replace(/</g, "")}
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
-          This starter page is built entirely from the preinstalled component
-          library. Ask the agent to redesign it — sections, colors and content
-          are all editable from the chat.
-        </p>
-        <div className="mt-8 flex items-center justify-center gap-3">
-          <Button size="lg">
-            Start now <ArrowRight />
-          </Button>
-          <Button size="lg" variant="outline">Learn more</Button>
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-6xl gap-4 px-6 pb-20 sm:grid-cols-3">
-        {features.map((f) => (
-          <Card key={f.title}>
-            <CardHeader>
-              <f.icon className="mb-2 size-6 text-primary" />
-              <CardTitle>{f.title}</CardTitle>
-              <CardDescription>{f.text}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
-      </section>
-
-      <section className="mx-auto max-w-3xl px-6 pb-24">
-        <h2 className="mb-4 text-center text-2xl font-semibold tracking-tight">Questions</h2>
-        <Accordion type="single" collapsible>
-          {faqs.map((f, i) => (
-            <AccordionItem key={f.q} value={"item-" + i}>
-              <AccordionTrigger>{f.q}</AccordionTrigger>
-              <AccordionContent>{f.a}</AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </section>
-
-      <section className="mx-auto max-w-xl px-6 pb-24">
-        <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">Contact us</h2>
-        <p className="mb-6 text-center text-sm text-muted-foreground">
-          This form really works — submissions land in the site owner's inbox in the agent.
-        </p>
-        <Card>
-          <CardContent className="pt-6">
-            <LeadForm
-              form="contact"
-              submitLabel="Send message"
-              fields={[
-                { name: "name", label: "Your name", type: "text", required: true, placeholder: "Full name" },
-                { name: "phone", label: "Phone", type: "tel", placeholder: "03xx-xxxxxxx" },
-                { name: "message", label: "Message", type: "textarea", required: true, placeholder: "How can we help?" },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </section>
-    </main>
+    <>
+      <HeroSection
+        eyebrow="New website"
+        title={siteData.name}
+        description={siteData.tagline + ". This starter is composed from the senior section library — ask the agent to replace it with real pages for your business."}
+        primaryCta={siteData.primaryCta}
+        secondaryCta={{ label: "See how it works", href: "/#process" }}
+      />
+      <div id="services">
+        <FeatureGrid
+          eyebrow="Why it is built this way"
+          title="Senior habits, baked into the scaffold"
+          description="Not a blank canvas — an opinionated starting point that already handles the things junior sites forget."
+          features={features}
+        />
+      </div>
+      <StatsSection
+        stats={[
+          { value: "1", label: "Primary action per page", detail: "Every section earns its place" },
+          { value: "100%", label: "Component-library UI", detail: "No hand-rolled buttons or inputs" },
+          { value: "0", label: "Lorem ipsum", detail: "Real copy from the first draft" },
+        ]}
+      />
+      <div id="process">
+        <StepsSection
+          eyebrow="Process"
+          title="From brief to preview in three steps"
+          description="The same workflow on every site, so quality does not depend on luck."
+          steps={steps}
+        />
+      </div>
+      <div id="faq">
+        <FaqSection eyebrow="FAQ" title="Questions" faqs={faqs} />
+      </div>
+      <CtaSection
+        title="Ready when you are"
+        description="Tell the agent what this site should sell, book or explain — it will rebuild this starter into the real thing."
+        cta={siteData.primaryCta}
+      />
+      <ContactSection />
+    </>
   );
-}
-`,
+}`,
+    "app/robots.js": `import { siteData } from "@/lib/site-data";
+
+export default function robots() {
+  return {
+    rules: { userAgent: "*", allow: "/" },
+    sitemap: siteData.url + "/sitemap.xml",
+  };
+}`,
+    "app/sitemap.js": `import { siteData } from "@/lib/site-data";
+
+export default function sitemap() {
+  const now = new Date();
+  return (siteData.sitemapRoutes || ["/"]).map((route, i) => ({
+    url: siteData.url + (route === "/" ? "" : route),
+    lastModified: now,
+    changeFrequency: i === 0 ? "weekly" : "monthly",
+    priority: i === 0 ? 1 : 0.7,
+  }));
+}`,
+    "lib/site-data.js": siteDataFile(name, slug),
     "README.md": `# ${name}\n\nFrontend-only Next.js site generated by Riyan Agent. UI: shadcn/ui components (@/components/ui) + Lucide icons (lucide-react), preinstalled — compose them, don't hand-roll. Deploys to Vercel; production lives at https://${slug}.${SITE_APEX}.\n`,
   };
-  return { ...base, ...UI_COMPONENT_FILES, ...backendFiles(slug) };
+  return { ...base, ...UI_COMPONENT_FILES, ...SECTION_FILES, ...backendFiles(slug) };
 }
 
 export async function createSite(
@@ -875,13 +1479,15 @@ const SCAFFOLD_OWNED = new Set([
   "app/globals.css",
   "lib/utils.js",
   "lib/site-config.js",
+  "app/robots.js",
+  "app/sitemap.js",
 ]);
 
 export function validateSitePath(path: string): string | null {
   if (!path || path.includes("..") || path.startsWith("/") || path.includes("\\")) {
     return "Invalid path.";
   }
-  if (SCAFFOLD_OWNED.has(path) || path.startsWith("components/ui/") || path.startsWith("components/site/")) {
+  if (SCAFFOLD_OWNED.has(path) || path.startsWith("components/ui/") || path.startsWith("components/site/") || path.startsWith("components/sections/")) {
     return `"${path}" is managed by the scaffold/component library and cannot be overwritten. Import it instead (library: "@/components/ui/…", backend form: "@/components/site/lead-form"); put your own components in components/ and pages in app/.`;
   }
   if (path === "README.md") return null;
@@ -936,7 +1542,7 @@ export async function syncScaffoldFiles(site: SiteRow): Promise<void> {
   const all = scaffoldFiles(site.name, site.slug);
   const sb = getServiceClient();
   const rows = Object.entries(all)
-    .filter(([path]) => path !== "app/page.jsx" && path !== "README.md")
+    .filter(([path]) => path !== "app/page.jsx" && path !== "README.md" && path !== "lib/site-data.js")
     .map(([path, content]) => ({
       site_id: site.id,
       path,
