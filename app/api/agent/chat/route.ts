@@ -652,7 +652,7 @@ export async function POST(req: Request) {
                 postData: z.string().optional().describe("For net_intercept mode=modify: replace the request body"),
                 script: z.string().optional().describe("For evaluate: JavaScript (expression or async function) to run in the page; its return value comes back"),
                 limit: z.number().optional().describe("For net_log: max entries to return (default 30, newest last)"),
-                withBody: z.boolean().optional().describe("For net_log: include response bodies (default true)"),
+                withBody: z.boolean().optional().describe("For net_log: include response bodies (default false — keep the log compact; request payloads are always included)"),
               }),
               execute: async (args) => {
                 try {

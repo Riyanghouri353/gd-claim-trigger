@@ -176,7 +176,9 @@ def _net_public(e, with_body):
             out[k] = v
     if with_body and e.get("_resp") is not None and out.get("body") is None:
         try:
-            out["body"] = e["_resp"].text()[:3000]
+            # List views must stay compact — a full log with bodies is far
+            # larger than the model can read, which made it misreport logs.
+            out["body"] = e["_resp"].text()[:800]
         except Exception:
             out["body"] = None
     return out
@@ -308,7 +310,7 @@ def do(cmd):
         lim = int(args.get("limit", 30))
         items = items[-max(1, min(lim, 100)):]
         return {"ok": True, "url": page.url, "title": page.title(),
-                "network": [_net_public(e, bool(args.get("withBody", True))) for e in items],
+                "network": [_net_public(e, bool(args.get("withBody", False))) for e in items],
                 "networkTotal": len(NET["log"]), "rules": list(NET["rules"])}
     elif a == "net_clear":
         NET["log"] = []
