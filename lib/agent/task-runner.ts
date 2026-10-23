@@ -96,7 +96,8 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
     "Text only: no visual guides. If you take browser screenshots, link the most useful one in the report as ![screenshot](screenshotPath). " +
     "If something blocks you, say exactly what in the report instead of failing silently." +
     "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values." +
-    "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); fill credentials ONLY via {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} tokens. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task.";
+    "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); fill credentials ONLY via {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} tokens. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task." +
+    "\n\nNETWORK INTERCEPTION: py_browser net_log shows the requests a page made (method/URL/status/payload/response body) — use it to prove a form really called its API. net_intercept (pattern = URL substring or * glob; set it BEFORE the triggering action) rewrites traffic: mode=mock answers with your status/body (error & edge-case tests without touching the backend), mode=block aborts matches, mode=modify rewrites the request (newUrl, addHeaders, removeHeaders, method, postData — e.g. strip Authorization on the user's own site and verify rejection). Rules persist until net_stop — always net_stop at the end and state which rules were active. evaluate runs JavaScript in the page when clicks can't reach what you need.";
   return prompt;
 }
 
@@ -384,9 +385,9 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       },
     });
     tools.py_browser = tool({
-      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close. inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value (masked for password tokens). CREDENTIALS: fill with tokens {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} — never type a real password yourself. Session persists across calls. Link any screenshotPath in the report.",
+      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close + NETWORK: net_log (requests the page made: method/URL/status/payload/response body, filter urlContains/method/limit), net_intercept (pattern + mode: mock answers with your status/body, block aborts, modify rewrites newUrl/addHeaders/removeHeaders/method/postData — set BEFORE the triggering action), net_rules, net_stop (clear rules), net_clear (clear log), evaluate (run JS in the page, async ok). inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value (masked for password tokens). CREDENTIALS: fill with tokens {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} — never type a real password yourself. Session persists across calls. Link any screenshotPath in the report.",
       inputSchema: z.object({
-        action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close"]),
+        action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
         url: z.string().optional(),
         selector: z.string().optional(),
         value: z.string().optional(),
@@ -397,6 +398,18 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
         urlContains: z.string().optional(),
         ms: z.number().optional(),
         screenshot: z.boolean().optional(),
+        pattern: z.string().optional(),
+        mode: z.enum(["mock", "block", "modify"]).optional(),
+        status: z.number().optional(),
+        body: z.string().optional(),
+        contentType: z.string().optional(),
+        newUrl: z.string().optional(),
+        addHeaders: z.record(z.string(), z.string()).optional(),
+        removeHeaders: z.array(z.string()).optional(),
+        postData: z.string().optional(),
+        script: z.string().optional(),
+        limit: z.number().optional(),
+        withBody: z.boolean().optional(),
       }),
       execute: async (args) => {
         try {
@@ -411,13 +424,23 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       inputSchema: z.object({
         steps: z.array(
           z.object({
-            action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot"]),
+            action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
             url: z.string().optional(),
             selector: z.string().optional(),
             value: z.string().optional(),
             key: z.string().optional(),
             direction: z.enum(["up", "down"]).optional(),
             amount: z.number().optional(),
+            pattern: z.string().optional(),
+            mode: z.enum(["mock", "block", "modify"]).optional(),
+            status: z.number().optional(),
+            body: z.string().optional(),
+            contentType: z.string().optional(),
+            newUrl: z.string().optional(),
+            addHeaders: z.record(z.string(), z.string()).optional(),
+            removeHeaders: z.array(z.string()).optional(),
+            postData: z.string().optional(),
+            script: z.string().optional(),
             note: z.string().optional(),
             expect: z.object({
               textContains: z.string().optional(),
