@@ -88,35 +88,99 @@ function streamErrorMessage(error: unknown): string {
   return `Provider error: ${msg.slice(0, 220)}`;
 }
 
-async function persistTurn(conversationId: string, messages: any[], assistantText: string) {
+function extractUserText(messages: any[]): string {
+  const lastUser = [...messages].reverse().find((m: any) => m?.role === "user");
+  return (
+    lastUser?.parts
+      ?.filter((p: any) => p?.type === "text")
+      .map((p: any) => p.text)
+      .join("\n") ?? ""
+  );
+}
+
+/**
+ * Save the user's side of the turn IMMEDIATELY (before streaming starts).
+ * The old design saved everything in onFinish — so when a tool-heavy turn
+ * ended with an empty model response (or died), the conversation kept the
+ * work invisible and looked broken when the user came back to it.
+ */
+async function persistUserMessage(conversationId: string, messages: any[]) {
   try {
     const sb = getServiceClient();
-    const lastUser = [...messages].reverse().find((m: any) => m?.role === "user");
-    const userText =
-      lastUser?.parts
-        ?.filter((p: any) => p?.type === "text")
-        .map((p: any) => p.text)
-        .join("\n") ?? "";
+    const userText = extractUserText(messages);
     if (userText) {
       await sb.from("messages").insert({ conversation_id: conversationId, role: "user", content: userText });
     }
-    if (assistantText) {
-      await sb.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: assistantText });
-    }
+    await sb
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
     // Auto-title a fresh conversation from its first message
     const { count } = await sb
       .from("messages")
       .select("id", { count: "exact", head: true })
       .eq("conversation_id", conversationId);
-    if (count !== null && count <= 2 && userText) {
+    if (count !== null && count <= 1 && userText) {
       await sb
         .from("conversations")
         .update({ title: userText.slice(0, 60) })
         .eq("id", conversationId);
     }
   } catch (e) {
-    console.error("persistTurn failed", e);
+    console.error("persistUserMessage failed", e);
   }
+}
+
+async function persistAssistantMessage(conversationId: string, text: string) {
+  try {
+    if (!text || !text.trim()) return;
+    const sb = getServiceClient();
+    await sb.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: text });
+    await sb
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
+  } catch (e) {
+    console.error("persistAssistantMessage failed", e);
+  }
+}
+
+/**
+ * Fallback reply built from the turn's actual tool results. Used when the
+ * model finishes a tool-heavy turn with NO final text (empty response /
+ * step budget hit) — the work happened, so the conversation must show it
+ * instead of looking dead when the user returns.
+ */
+function summarizeSteps(steps: any[], finishReason?: string): string {
+  const lines: string[] = [];
+  for (const s of steps || []) {
+    for (const r of (s as any)?.toolResults || []) {
+      const out: any = (r as any)?.output ?? {};
+      const name = (r as any)?.toolName || "tool";
+      if (out && out.ok === false) {
+        lines.push(`- ${name} — FAILED: ${out.error || "unknown error"}`);
+      } else if (name === "create_site") {
+        lines.push(`- Created website "${out.name || out.site || ""}" (slug: ${out.site})`);
+      } else if (name === "write_site_file") {
+        lines.push(`- Wrote file ${out.path}`);
+      } else if (name === "preview_site") {
+        lines.push(`- Live preview built: ${out.previewUrl || out.url || "ready"}`);
+      } else if (name === "deploy_site") {
+        lines.push(`- Deployed: ${out.url || out.previewUrl || out.liveUrl || "done"}`);
+      } else if (name === "audit_site_quality") {
+        lines.push(`- Quality audit score: ${out.score}/100 (${out.grade})`);
+      } else if (name === "create_file") {
+        lines.push(`- Created file ${out.name || ""} (${out.download || ""})`);
+      } else {
+        lines.push(`- ${name} — done`);
+      }
+    }
+  }
+  const head =
+    finishReason === "tool-calls"
+      ? "I hit my step limit for one turn and stopped mid-task — here is what is already done. Say 'continue' and I will finish it:"
+      : "That turn ended without a written summary from the model, but this work really happened:";
+  return [head, ...(lines.length ? lines.slice(0, 20) : ["- (no tool work was recorded)"])].join("\n");
 }
 
 export async function POST(req: Request) {
@@ -132,6 +196,10 @@ export async function POST(req: Request) {
   }
 
   const modelMessages = await convertToModelMessages(messages);
+
+  // Save the user's message NOW — never leave a conversation showing a
+  // one-sided turn if generation later fails or ends without text.
+  if (conversationId) await persistUserMessage(conversationId, messages);
   const modelId = (await getSetting("chat_model")) || "openai/gpt-oss-120b";
   let systemPrompt =
     (await getSetting("system_prompt")) ||
@@ -845,6 +913,7 @@ export async function POST(req: Request) {
     }
 
     try {
+      let turnPersisted = false;
       const result = streamText({
         // Lovable gateway: Gemini models only work on /v1/chat/completions,
         // so force the chat model (the SDK default is the Responses API).
@@ -852,10 +921,15 @@ export async function POST(req: Request) {
         system: systemPrompt,
         messages: modelMessages,
         tools,
-        stopWhen: stepCountIs(16),
-        onFinish: async ({ text }) => {
+        stopWhen: stepCountIs(24),
+        onFinish: async ({ text, steps, finishReason }) => {
           await markKeyUsed(keyRow.id, provider);
-          if (conversationId) await persistTurn(conversationId, messages, text);
+          if (!conversationId || turnPersisted) return;
+          turnPersisted = true;
+          // Tool-heavy turns can end with no final text — persist a summary
+          // of the actual tool work so the conversation never looks dead.
+          const finalText = text && text.trim() ? text : summarizeSteps(steps as any[], finishReason);
+          await persistAssistantMessage(conversationId, finalText);
         },
         onError: async ({ error }) => {
           // Mark the key's state for the NEXT request (can't swap mid-stream).
@@ -864,6 +938,15 @@ export async function POST(req: Request) {
             if (status === 429) await cooldownKey(keyRow.id, retryAfter ?? 60, provider);
             else if (status === 401) await disableKey(keyRow.id, provider);
           } catch {}
+          if (conversationId && !turnPersisted) {
+            turnPersisted = true;
+            await persistAssistantMessage(
+              conversationId,
+              "That turn hit an error before finishing: " +
+                streamErrorMessage(error) +
+                " Your message is saved — say 'continue' and I will pick up where it stopped."
+            );
+          }
         },
       });
       return result.toUIMessageStreamResponse({
