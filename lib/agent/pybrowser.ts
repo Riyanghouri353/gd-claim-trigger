@@ -62,6 +62,125 @@ pw, browser = launch()
 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
 page = ctx.new_page()
 
+# --- Network capture + interception -------------------------------------
+# Every request/response is logged (method, url, type, status, request
+# payload, response body fetched lazily at read time). Rules installed via
+# net_intercept rewrite traffic in the route handler: mock (fulfill with a
+# canned response), block (abort), modify (continue with changed url /
+# headers / method / body). Rules persist until net_stop.
+import fnmatch
+
+NET = {"log": [], "rules": [], "seq": 0, "rid": 0}
+
+def _net_match(pattern, url):
+    if not pattern:
+        return True
+    if "*" in pattern:
+        return fnmatch.fnmatch(url, pattern)
+    return pattern in url
+
+def _net_add(entry):
+    NET["seq"] += 1
+    entry["id"] = NET["seq"]
+    NET["log"].append(entry)
+    if len(NET["log"]) > 300:
+        NET["log"] = NET["log"][-300:]
+    return entry
+
+def _net_find_pending(url, method):
+    for e in reversed(NET["log"]):
+        if e.get("url") == url and e.get("method") == method and e.get("status") is None:
+            return e
+    return None
+
+def _pb_route(route):
+    req = route.request
+    try:
+        for r in list(NET["rules"]):
+            if _net_match(r.get("pattern", ""), req.url):
+                mode = r.get("mode", "mock")
+                e = _net_find_pending(req.url, req.method)
+                if e is None:
+                    e = _net_add({"method": req.method, "url": req.url, "type": req.resource_type, "status": None, "postData": None, "body": None})
+                e["intercepted"] = mode
+                if mode == "block":
+                    route.abort()
+                    return
+                if mode == "mock":
+                    e["status"] = int(r.get("status", 200))
+                    route.fulfill(status=int(r.get("status", 200)), body=r.get("body", ""), content_type=r.get("contentType", "application/json"))
+                    return
+                if mode == "modify":
+                    headers = dict(req.headers)
+                    for h in (r.get("removeHeaders") or []):
+                        headers.pop(str(h).lower(), None)
+                    for k, v in (r.get("addHeaders") or {}).items():
+                        headers[str(k).lower()] = v
+                    kw = {"headers": headers}
+                    if r.get("newUrl"):
+                        kw["url"] = r["newUrl"]
+                    if r.get("method"):
+                        kw["method"] = r["method"]
+                    if r.get("postData") is not None:
+                        kw["post_data"] = r["postData"]
+                    route.continue_(**kw)
+                    return
+        route.continue_()
+    except Exception:
+        try:
+            route.continue_()
+        except Exception:
+            pass
+
+def _pb_on_request(req):
+    try:
+        e = _net_find_pending(req.url, req.method)
+        if e is not None and e.get("intercepted"):
+            return
+        pd = None
+        if req.method not in ("GET", "HEAD"):
+            try:
+                pd = (req.post_data or "")[:2000]
+            except Exception:
+                pd = None
+        _net_add({"method": req.method, "url": req.url, "type": req.resource_type, "status": None, "postData": pd, "body": None})
+    except Exception:
+        pass
+
+def _pb_on_response(resp):
+    try:
+        req = resp.request
+        e = _net_find_pending(resp.url, req.method)
+        if e is None:
+            return
+        if e.get("status") is None:
+            e["status"] = resp.status
+        ct = ""
+        try:
+            ct = resp.headers.get("content-type", "")
+        except Exception:
+            pass
+        if ("json" in ct or "text" in ct) and not e.get("intercepted"):
+            e["_resp"] = resp
+    except Exception:
+        pass
+
+page.route("**/*", _pb_route)
+page.on("request", _pb_on_request)
+page.on("response", _pb_on_response)
+
+def _net_public(e, with_body):
+    out = {}
+    for k, v in e.items():
+        if not k.startswith("_"):
+            out[k] = v
+    if with_body and e.get("_resp") is not None and out.get("body") is None:
+        try:
+            out["body"] = e["_resp"].text()[:3000]
+        except Exception:
+            out["body"] = None
+    return out
+
 def snap():
     try:
         page.screenshot(path=SHOT)
@@ -180,6 +299,47 @@ def do(cmd):
             if snap():
                 res1["shot"] = True
         return res1
+    elif a == "net_log":
+        items = list(NET["log"])
+        if args.get("urlContains"):
+            items = [e for e in items if args["urlContains"] in (e.get("url") or "")]
+        if args.get("method"):
+            items = [e for e in items if e.get("method") == str(args["method"]).upper()]
+        lim = int(args.get("limit", 30))
+        items = items[-max(1, min(lim, 100)):]
+        return {"ok": True, "url": page.url, "title": page.title(),
+                "network": [_net_public(e, bool(args.get("withBody", True))) for e in items],
+                "networkTotal": len(NET["log"]), "rules": list(NET["rules"])}
+    elif a == "net_clear":
+        NET["log"] = []
+        return {"ok": True, "url": page.url, "network": [], "networkTotal": 0, "rules": list(NET["rules"])}
+    elif a == "net_intercept":
+        NET["rid"] += 1
+        rule = {"id": NET["rid"], "pattern": args.get("pattern", ""), "mode": args.get("mode", "mock"),
+                "status": args.get("status", 200), "body": args.get("body", ""),
+                "contentType": args.get("contentType", "application/json"),
+                "newUrl": args.get("newUrl"), "addHeaders": args.get("addHeaders"),
+                "removeHeaders": args.get("removeHeaders"), "method": args.get("method"),
+                "postData": args.get("postData")}
+        NET["rules"].append(rule)
+        return {"ok": True, "url": page.url, "rules": list(NET["rules"])}
+    elif a == "net_rules":
+        return {"ok": True, "url": page.url, "rules": list(NET["rules"])}
+    elif a == "net_stop":
+        NET["rules"] = []
+        return {"ok": True, "url": page.url, "rules": []}
+    elif a == "evaluate":
+        script = args.get("script") or args.get("text") or ""
+        val = page.evaluate(script)
+        if isinstance(val, (dict, list, int, float, bool)) or val is None:
+            out_val = val
+        else:
+            out_val = str(val)[:4000]
+        res3 = {"ok": True, "url": page.url, "title": page.title(), "value": out_val}
+        if args.get("screenshot"):
+            if snap():
+                res3["shot"] = True
+        return res3
     elif a == "wait":
         page.wait_for_timeout(int(args.get("ms", 1000)))
     elif a == "screenshot":
@@ -340,10 +500,14 @@ export interface PyBrowserResult {
   url?: string;
   title?: string;
   text?: string;
-  /** fill/type read-back: the field's actual value after the action */
-  value?: string;
+  /** fill/type read-back value; evaluate returns the JS result (any JSON value) */
+  value?: unknown;
   /** inspect action: the page's forms/fields/clickables map */
   elements?: unknown;
+  /** net_log action: captured requests; net_* actions: active interception rules */
+  network?: unknown;
+  networkTotal?: number;
+  rules?: unknown;
   screenshotId?: string;
   screenshotPath?: string;
   error?: string;
@@ -455,6 +619,9 @@ async function pyBrowserActionInner(
     // Never echo a filled password back into the model's context.
     value: usedPasswordToken ? "••••••••" : res.value,
     elements: res.elements,
+    network: res.network,
+    networkTotal: res.networkTotal,
+    rules: res.rules,
     error: res.ok ? undefined : res.error || "Action failed",
   };
   if (res.shot) {
@@ -655,13 +822,23 @@ export async function apiTest(apiKey: string, spec: ApiTestSpec): Promise<ApiTes
 // --- Structured site tests ---------------------------------------------------
 
 export interface SiteTestStep {
-  action: "open" | "inspect" | "fill" | "type" | "click" | "submit" | "press" | "scroll" | "wait_for" | "read" | "screenshot";
+  action: "open" | "inspect" | "fill" | "type" | "click" | "submit" | "press" | "scroll" | "wait_for" | "read" | "screenshot" | "net_log" | "net_clear" | "net_intercept" | "net_rules" | "net_stop" | "evaluate";
   url?: string;
   selector?: string;
   value?: string;
   key?: string;
   direction?: "up" | "down";
   amount?: number;
+  pattern?: string;
+  mode?: "mock" | "block" | "modify";
+  status?: number;
+  body?: string;
+  contentType?: string;
+  newUrl?: string;
+  addHeaders?: Record<string, string>;
+  removeHeaders?: string[];
+  postData?: string;
+  script?: string;
   note?: string;
   expect?: {
     textContains?: string;
@@ -711,6 +888,16 @@ export async function runSiteTest(
       amount: step.amount,
       text: step.expect?.textContains,
       urlContains: step.expect?.urlContains,
+      pattern: step.pattern,
+      mode: step.mode,
+      status: step.status,
+      body: step.body,
+      contentType: step.contentType,
+      newUrl: step.newUrl,
+      addHeaders: step.addHeaders,
+      removeHeaders: step.removeHeaders,
+      postData: step.postData,
+      script: step.script,
     });
     const failures: string[] = [];
     if (!r.ok) failures.push(r.error || "action failed");
@@ -733,7 +920,11 @@ export async function runSiteTest(
       action: step.action,
       note: step.note,
       ok,
-      observed: { url: r.url, title: r.title, value: r.value },
+      observed: {
+        url: r.url,
+        title: r.title,
+        value: typeof r.value === "string" ? r.value : r.value === undefined ? undefined : JSON.stringify(r.value)?.slice(0, 500),
+      },
       failures,
       error: r.ok ? undefined : r.error,
       screenshotPath: r.screenshotPath,
