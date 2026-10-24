@@ -17,6 +17,7 @@ import {
 } from "./keys";
 import { listConnectors, callConnector } from "./connectors";
 import { listMemories, addMemory } from "./memory";
+import { searchKnowledge, getKbStats } from "./knowledge";
 import { fetchPublicText } from "./web";
 import { createAgentFile } from "./files";
 import { getE2BKey, runCode } from "./e2b";
@@ -89,6 +90,13 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
         mems.map((m) => `- ${m.content}`).join("\n");
     }
   } catch {}
+  try {
+    const kb = await getKbStats();
+    prompt +=
+      `\n\nKnowledge base: a searchable library of Riyan's saved documents ` +
+      `(currently ${kb.documents} documents, ${kb.chunks} chunks). ` +
+      "When the task could be answered from his documents, call search_knowledge FIRST and cite the document title in the report.";
+  } catch {}
   const now = new Date();
   prompt +=
     `\n\nYou are running as a SCHEDULED AUTONOMOUS TASK named "${task.name}". ` +
@@ -151,6 +159,18 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       execute: async ({ fact }) => {
         const ok = await addMemory(fact).catch(() => false);
         return { ok };
+      },
+    }),
+    search_knowledge: tool({
+      description:
+        "Search Riyan's knowledge base — his saved documents, files, pages and notes. Use FIRST when a task could be answered from his own documents. Returns ranked excerpts with document titles; cite the title in the report.",
+      inputSchema: z.object({ query: z.string(), limit: z.number().optional().default(6) }),
+      execute: async ({ query, limit }) => {
+        const hits = await searchKnowledge(query, Math.min(limit || 6, 10));
+        return {
+          found: hits.length,
+          hits: hits.map((h) => ({ document: h.document_title, excerpt: h.content.slice(0, 900) })),
+        };
       },
     }),
     create_file: tool({

@@ -145,6 +145,18 @@ export type Database = {
         Update: { site?: string; label?: string; email?: string; username?: string; secret_enc?: string; generated?: boolean };
         Relationships: [];
       };
+      kb_documents: {
+        Row: { id: string; title: string; source_type: string; source_url: string | null; file_name: string | null; chunk_count: number; created_at: string };
+        Insert: { title: string; source_type: string; source_url?: string | null; file_name?: string | null; chunk_count?: number };
+        Update: { title?: string; source_type?: string; source_url?: string | null; file_name?: string | null; chunk_count?: number };
+        Relationships: [];
+      };
+      kb_chunks: {
+        Row: { id: string; document_id: string; chunk_index: number; content: string };
+        Insert: { document_id: string; chunk_index: number; content: string };
+        Update: { document_id?: string; chunk_index?: number; content?: string };
+        Relationships: [];
+      };
       agent_task_runs: {
         Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
         Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
@@ -165,7 +177,12 @@ export type Database = {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      search_kb_chunks: {
+        Args: { p_query: string; p_limit?: number };
+        Returns: { chunk_id: string; document_id: string; document_title: string; chunk_index: number; content: string; score: number }[];
+      };
+    };
   };
 }
 
