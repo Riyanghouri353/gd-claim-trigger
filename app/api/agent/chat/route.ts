@@ -17,6 +17,7 @@ import {
 } from "@/lib/agent/keys";
 import { listConnectors, callConnector } from "@/lib/agent/connectors";
 import { listMemories, addMemory } from "@/lib/agent/memory";
+import { searchKnowledge, ingestDocument, getKbStats } from "@/lib/agent/knowledge";
 import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
@@ -235,6 +236,19 @@ export async function POST(req: Request) {
     /* memory unavailable — chat still works */
   }
 
+  // Knowledge base: tell the model what it holds so it reaches for the tool.
+  try {
+    const kb = await getKbStats();
+    systemPrompt +=
+      "\n\nKnowledge base: you have a searchable library of Riyan's saved documents " +
+      `(currently ${kb.documents} document${kb.documents === 1 ? "" : "s"}, ${kb.chunks} chunks). ` +
+      "When a question could be answered from his documents — his bakery, his projects, his prices, his notes — " +
+      "call search_knowledge FIRST, before answering from general knowledge, and cite the document title. " +
+      "When he asks you to keep a document, save it with save_to_knowledge (one-line facts still go to remember).";
+  } catch {
+    /* knowledge base unavailable — chat still works */
+  }
+
   const e2bKey = await getE2BKey().catch(() => null);
 
   systemPrompt +=
@@ -361,6 +375,40 @@ export async function POST(req: Request) {
         execute: async ({ fact }) => {
           const stored = await addMemory(fact);
           return { ok: true, stored, note: stored ? "Saved to long-term memory." : "Already remembered." };
+        },
+      }),
+      search_knowledge: tool({
+        description:
+          "Search Riyan's knowledge base — the documents, files, pages and notes he saved (bakery records, project docs, personal notes). Use FIRST whenever a question could be answered from his own documents rather than general knowledge: his business, his projects, his prices, his notes, anything specific to him. Returns ranked excerpts with the document title each came from. Always name the document your answer came from (e.g. 'According to <title>…'). If nothing relevant comes back, say so and answer normally.",
+        inputSchema: z.object({
+          query: z.string().describe("What to look for, in the user's own words"),
+          limit: z.number().optional().default(6).describe("Max excerpts to return"),
+        }),
+        execute: async ({ query, limit }) => {
+          const hits = await searchKnowledge(query, Math.min(limit || 6, 10));
+          return {
+            found: hits.length,
+            hits: hits.map((h) => ({
+              document: h.document_title,
+              excerpt: h.content.slice(0, 900),
+            })),
+          };
+        },
+      }),
+      save_to_knowledge: tool({
+        description:
+          "Save a document into Riyan's knowledge base so future questions can be answered from it. Use when the user pastes a document, notes or reference text and asks to keep it, or says 'remember this in the knowledge base' (for a one-line fact, use remember instead). Give it a short clear title.",
+        inputSchema: z.object({
+          title: z.string().describe("Short clear title for the document"),
+          content: z.string().describe("Full text of the document to save"),
+        }),
+        execute: async ({ title, content }) => {
+          try {
+            const { document, chunks } = await ingestDocument({ title, content, source_type: "chat" });
+            return { ok: true, document: document.title, chunks, note: "Saved to the knowledge base." };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not save the document" };
+          }
         },
       }),
       read_url: tool({

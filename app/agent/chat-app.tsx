@@ -11,6 +11,7 @@ import {
   ArrowUp,
   BarChart3,
   Bell,
+  BookOpen,
   Bot,
   Box,
   Brain,
@@ -647,6 +648,15 @@ export default function ChatApp() {
               aria-label="My websites"
             >
               <Globe className="size-[18px]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => router.push("/agent/knowledge")}
+              title="Knowledge base"
+              aria-label="Knowledge base"
+            >
+              <BookOpen className="size-[18px]" />
             </Button>
             <Button
               variant="ghost"
