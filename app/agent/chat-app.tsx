@@ -499,10 +499,10 @@ export default function ChatApp() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Brand */}
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-md shadow-black/30">
-            <Sparkles className="size-[18px]" />
+        {/* Brand — slim, borderless, like Muse's sidebar header */}
+        <div className="flex h-14 shrink-0 items-center gap-3 px-4">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-md shadow-black/30">
+            <Sparkles className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold tracking-tight">Riyan Agent</p>
@@ -523,7 +523,7 @@ export default function ChatApp() {
         </div>
 
         {/* Actions */}
-        <div className="shrink-0 space-y-2 px-3 pt-3">
+        <div className="shrink-0 space-y-2.5 px-3 pt-2">
           <Button variant="outline" onClick={newChat} className="w-full justify-start rounded-xl">
             <SquarePen />
             New chat
@@ -553,7 +553,7 @@ export default function ChatApp() {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {groups.length === 0 && !search && (
             <div className="flex flex-col items-center px-6 py-10 text-center">
-              <div className="flex size-11 items-center justify-center rounded-2xl border bg-card text-muted-foreground">
+              <div className="flex size-11 items-center justify-center rounded-full border bg-card text-muted-foreground">
                 <MessageSquare className="size-5" />
               </div>
               <p className="mt-3 text-sm font-medium text-muted-foreground">
@@ -571,7 +571,7 @@ export default function ChatApp() {
           )}
           {groups.map((g) => (
             <div key={g.label} className="mb-4 last:mb-0">
-              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
+              <p className="px-2 pb-1.5 text-xs font-medium text-muted-foreground/70">
                 {g.label}
               </p>
               <ul className="space-y-0.5">
@@ -590,14 +590,8 @@ export default function ChatApp() {
                           onClick={() => openConversation(c.id)}
                           aria-current={active ? true : undefined}
                           title={title}
-                          className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-3 pr-1 text-left"
+                          className="flex min-w-0 flex-1 items-center py-2 pl-3 pr-1 text-left"
                         >
-                          <MessageSquare
-                            className={cn(
-                              "size-4 shrink-0",
-                              active ? "text-primary" : "text-muted-foreground"
-                            )}
-                          />
                           <span
                             className={cn(
                               "truncate text-sm",
@@ -625,9 +619,9 @@ export default function ChatApp() {
         </div>
 
         {/* Footer — profile row */}
-        <div className="shrink-0 border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+        <div className="shrink-0 border-t border-sidebar-border p-2.5">
+          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
               R
             </div>
             <div className="min-w-0 flex-1">
