@@ -727,32 +727,32 @@ details.config[open] summary::before { content: '▾'; }
 /* ------------------------------------------------------------------ */
 
 .agent-shell {
-  --background: #0a0a12;
+  --background: #131318;
   --foreground: #eceaf4;
-  --card: #12121c;
+  --card: #1c1c23;
   --card-foreground: #eceaf4;
-  --popover: #17171f;
+  --popover: #1f1f28;
   --popover-foreground: #eceaf4;
   --primary: #7c6cf6;
   --primary-foreground: #ffffff;
-  --secondary: #1d1d2a;
+  --secondary: #22222c;
   --secondary-foreground: #eceaf4;
-  --muted: #16161f;
-  --muted-foreground: #9d99b0;
-  --accent: #22222f;
+  --muted: #1a1a21;
+  --muted-foreground: #a2a0b4;
+  --accent: #262630;
   --accent-foreground: #eceaf4;
   --destructive: #f26d6d;
-  --border: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.14);
   --ring: #7c6cf6;
-  --radius: 0.75rem;
-  --sidebar: #0c0c15;
+  --radius: 1rem;
+  --sidebar: #0f0f15;
   --sidebar-foreground: #eceaf4;
   --sidebar-primary: #7c6cf6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1b1b29;
+  --sidebar-accent: #1e1e28;
   --sidebar-accent-foreground: #eceaf4;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-border: rgba(255, 255, 255, 0.07);
   --sidebar-ring: #7c6cf6;
   color-scheme: dark;
 }
@@ -763,11 +763,11 @@ details.config[open] summary::before { content: '▾'; }
   }
 }
 
-.agent-shell ::selection { background: rgba(124, 108, 246, 0.4); }
+.agent-shell ::selection { background: rgba(124, 108, 246, 0.35); }
 
 .agent-shell ::-webkit-scrollbar { width: 8px; height: 8px; }
-.agent-shell ::-webkit-scrollbar-thumb { background: #2b2b3a; border-radius: 4px; }
-.agent-shell ::-webkit-scrollbar-thumb:hover { background: #3a3a4e; }
+.agent-shell ::-webkit-scrollbar-thumb { background: #33333f; border-radius: 4px; }
+.agent-shell ::-webkit-scrollbar-thumb:hover { background: #43434f; }
 
 @theme inline {
   --color-background: var(--background);
@@ -803,7 +803,7 @@ details.config[open] summary::before { content: '▾'; }
 }
 
 /* Markdown inside assistant messages */
-.agent-md { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.agent-md { font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
 .agent-md > *:first-child { margin-top: 0; }
 .agent-md > *:last-child { margin-bottom: 0; }
 .agent-md p { margin: 0 0 0.75em; }
@@ -832,7 +832,7 @@ details.config[open] summary::before { content: '▾'; }
    <html> (set pre-paint by the agent layout script, toggled + persisted
    to localStorage by the ThemeToggle). Dark is the .agent-shell default. */
 :root[data-agent-theme="light"] .agent-shell {
-  --background: #f6f6fa;
+  --background: #faf9f7;
   --foreground: #1b1b26;
   --card: #ffffff;
   --card-foreground: #1b1b26;
@@ -840,23 +840,23 @@ details.config[open] summary::before { content: '▾'; }
   --popover-foreground: #1b1b26;
   --primary: #6a5af0;
   --primary-foreground: #ffffff;
-  --secondary: #eeeef5;
+  --secondary: #efede8;
   --secondary-foreground: #1b1b26;
-  --muted: #f0f0f6;
-  --muted-foreground: #62627a;
-  --accent: #e9e7f8;
+  --muted: #f1efe9;
+  --muted-foreground: #6b6a72;
+  --accent: #ece9f7;
   --accent-foreground: #1b1b26;
   --destructive: #dc3e42;
-  --border: rgba(23, 23, 40, 0.1);
-  --input: rgba(23, 23, 40, 0.16);
+  --border: rgba(28, 25, 23, 0.09);
+  --input: rgba(28, 25, 23, 0.16);
   --ring: #6a5af0;
-  --sidebar: #efeff6;
+  --sidebar: #f2f1ee;
   --sidebar-foreground: #1b1b26;
   --sidebar-primary: #6a5af0;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e3e1f2;
+  --sidebar-accent: #e9e6f5;
   --sidebar-accent-foreground: #1b1b26;
-  --sidebar-border: rgba(23, 23, 40, 0.08);
+  --sidebar-border: rgba(28, 25, 23, 0.07);
   --sidebar-ring: #6a5af0;
   color-scheme: light;
 }

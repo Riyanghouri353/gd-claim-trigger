@@ -501,7 +501,7 @@ export default function ChatApp() {
       >
         {/* Brand */}
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-lg shadow-black/40">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-md shadow-black/30">
             <Sparkles className="size-[18px]" />
           </div>
           <div className="min-w-0 flex-1">
@@ -524,7 +524,7 @@ export default function ChatApp() {
 
         {/* Actions */}
         <div className="shrink-0 space-y-2 px-3 pt-3">
-          <Button onClick={newChat} className="w-full justify-start">
+          <Button variant="outline" onClick={newChat} className="w-full justify-start rounded-xl">
             <SquarePen />
             New chat
           </Button>
@@ -535,7 +535,7 @@ export default function ChatApp() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search chats"
               aria-label="Search chats"
-              className="pl-9"
+              className="pl-9 rounded-full"
             />
             {search && (
               <button
@@ -582,13 +582,10 @@ export default function ChatApp() {
                     <li key={c.id}>
                       <div
                         className={cn(
-                          "group relative flex items-center rounded-lg transition-colors",
-                          active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60"
+                          "group relative flex items-center rounded-xl transition-colors",
+                          active ? "bg-primary/10" : "hover:bg-sidebar-accent/60"
                         )}
                       >
-                        {active && (
-                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
-                        )}
                         <button
                           onClick={() => openConversation(c.id)}
                           aria-current={active ? true : undefined}
@@ -604,7 +601,7 @@ export default function ChatApp() {
                           <span
                             className={cn(
                               "truncate text-sm",
-                              active ? "font-medium" : "text-muted-foreground group-hover:text-foreground"
+                              active ? "font-medium text-primary" : "text-muted-foreground group-hover:text-foreground"
                             )}
                           >
                             {title}
@@ -687,14 +684,17 @@ export default function ChatApp() {
           <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
           </Button>
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+            <Sparkles className="size-3.5" />
+          </div>
           <span className="truncate text-sm font-semibold">Riyan Agent</span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-6">
-          <div className="mx-auto max-w-3xl space-y-6">
+          <div className="mx-auto max-w-3xl space-y-7">
             {messages.length === 0 && (
               <div className="pt-10 text-center md:pt-16">
-                <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-xl shadow-primary/20">
+                <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-lg shadow-primary/25">
                   <Sparkles className="size-7" />
                 </div>
                 <h1 className="mt-5 text-2xl font-bold tracking-tight md:text-3xl">
@@ -708,7 +708,7 @@ export default function ChatApp() {
                     <button
                       key={s.label}
                       onClick={() => !busy && submitText(s.prompt, [])}
-                      className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/50 hover:bg-accent"
+                      className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3.5 text-sm transition-all hover:border-primary/50 hover:bg-accent hover:shadow-sm"
                     >
                       <s.icon className="size-4 shrink-0 text-primary" />
                       <span className="min-w-0 truncate">{s.label}</span>
@@ -721,7 +721,7 @@ export default function ChatApp() {
               <div key={m.id}>
                 {m.role === "user" ? (
                   <div className="flex justify-end">
-                    <div className="max-w-[90%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-[15px] leading-relaxed text-primary-foreground md:max-w-[85%]">
+                    <div className="max-w-[90%] rounded-[22px] rounded-br-lg bg-primary px-4 py-3 text-[15px] leading-relaxed text-primary-foreground shadow-sm shadow-black/10 md:max-w-[85%]">
                       {m.parts.map((part: any, i: number) => {
                         if (part.type === "file") {
                           return part.mediaType?.startsWith("image/") && part.url ? (
@@ -754,7 +754,7 @@ export default function ChatApp() {
                   </div>
                 ) : (
                   <div className="flex gap-3">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-sm">
                       <Sparkles className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1 pt-1 text-[15px] leading-relaxed">
@@ -851,7 +851,7 @@ export default function ChatApp() {
             ))}
             {busy && messages[messages.length - 1]?.role === "user" && (
               <div className="flex gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white shadow-sm">
                   <Sparkles className="size-4" />
                 </div>
                 <div className="flex items-center gap-1.5 pt-3" aria-label="Thinking">
@@ -883,7 +883,7 @@ export default function ChatApp() {
         <div className="shrink-0 p-3 md:p-4">
           <form
             onSubmit={handleSubmit}
-            className="mx-auto max-w-3xl rounded-3xl border bg-card p-2 shadow-lg shadow-black/20 focus-within:border-primary/60"
+            className="mx-auto max-w-3xl rounded-[28px] border bg-card p-2 shadow-md shadow-black/10 focus-within:border-primary/60"
           >
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 px-2 pb-2 pt-1">
