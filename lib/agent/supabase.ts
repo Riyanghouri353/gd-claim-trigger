@@ -157,6 +157,12 @@ export type Database = {
         Update: { document_id?: string; chunk_index?: number; content?: string };
         Relationships: [];
       };
+      deep_tasks: {
+        Row: { id: string; conversation_id: string | null; goal: string; status: string; plan: any; progress: any; result: string | null; error: string | null; attempts: number; created_at: string; updated_at: string; started_at: string | null; finished_at: string | null; heartbeat_at: string | null };
+        Insert: { conversation_id?: string | null; goal: string; status?: string; plan?: any; progress?: any; result?: string | null; error?: string | null; attempts?: number };
+        Update: { conversation_id?: string | null; goal?: string; status?: string; plan?: any; progress?: any; result?: string | null; error?: string | null; attempts?: number; updated_at?: string; started_at?: string | null; finished_at?: string | null; heartbeat_at?: string | null };
+        Relationships: [];
+      };
       agent_task_runs: {
         Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
         Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };

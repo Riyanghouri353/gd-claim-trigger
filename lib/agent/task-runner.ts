@@ -53,7 +53,7 @@ import { listTestAccounts, generateTestIdentity } from "./test-accounts";
 
 const runningTasks = new Set<string>();
 
-const lovableFetch = async (url: any, init: any): Promise<Response> => {
+export const lovableFetch = async (url: any, init: any): Promise<Response> => {
   const headers = new Headers(init?.headers);
   headers.delete("authorization");
   return fetch(url, { ...init, headers });
@@ -550,10 +550,11 @@ async function ensureConversation(task: AgentTask): Promise<string> {
   return data.id;
 }
 
-async function runGeneration(
+export async function runGeneration(
   task: AgentTask,
   conversationId: string,
-  systemPrompt: string
+  systemPrompt: string,
+  opts?: { steps?: number; timeoutMs?: number; onStepFinish?: (step: any) => void }
 ): Promise<string> {
   const modelId = (await getSetting("chat_model")) || "openai/gpt-oss-120b";
   const primary: KeyProvider = modelId.startsWith("gemini-")
@@ -599,15 +600,16 @@ async function runGeneration(
       }
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 240_000);
+      const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 240_000);
       try {
         const result = await generateText({
           model: provider === "lovable" ? (ai as any).chat(mid) : (ai as any)(mid),
           system: systemPrompt,
           prompt: task.instructions,
           tools,
-          stopWhen: stepCountIs(15),
+          stopWhen: stepCountIs(opts?.steps ?? 15),
           abortSignal: controller.signal,
+          onStepFinish: opts?.onStepFinish,
         });
         clearTimeout(timer);
         await markKeyUsed(keyRow.id, provider).catch(() => {});
