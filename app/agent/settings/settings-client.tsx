@@ -100,10 +100,10 @@ function Msg({ text }: { text: string }) {
 }
 
 function KeyStatus({ k }: { k: KeyRow }) {
-  if (k.disabled) return <Badge variant="destructive">Disabled</Badge>;
+  if (k.disabled) return <Badge variant="destructive" title="Disabled — the agent will not use this key">Off</Badge>;
   if (k.cooldown_until && new Date(k.cooldown_until) > new Date())
-    return <Badge variant="secondary">Cooling down</Badge>;
-  return <Badge variant="success">Active</Badge>;
+    return <Badge variant="secondary" title="Paused after too many requests — it resumes on its own">Resting</Badge>;
+  return <Badge variant="success" title="Ready for the agent to use">Working</Badge>;
 }
 
 interface ConfirmState {
@@ -169,6 +169,7 @@ export default function SettingsClient() {
   const [aMsg, setAMsg] = useState("");
   const [aDomain, setADomain] = useState("example.com");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   async function load() {
     const [kr, gkr, lkr, sr, cr, mr, er, scr] = await Promise.all([
@@ -204,6 +205,7 @@ export default function SettingsClient() {
       setModel(j.chat_model || MODELS[0]);
       setSystemPrompt(j.system_prompt || "");
     }
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -567,7 +569,7 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">{p.icon}</span>
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">{p.icon}</span>
             {p.title}
           </CardTitle>
           <CardDescription>{p.description}</CardDescription>
@@ -579,7 +581,7 @@ export default function SettingsClient() {
               <p className="text-sm text-muted-foreground">No keys yet — add your first below.</p>
             )}
             {p.rows.map((k) => (
-              <div key={k.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+              <div key={k.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-medium">
                     <span className="truncate">{k.label}</span>
@@ -637,11 +639,35 @@ export default function SettingsClient() {
     );
   }
 
+  // Plain-language health summary for the top of the page — computed from
+  // the same state the cards already load. Nothing here changes any data.
+  const usableKeys = (rows: KeyRow[]) =>
+    rows.filter((k) => !k.disabled && !(k.cooldown_until && new Date(k.cooldown_until) > new Date()));
+  const brainNames = [
+    ...(usableKeys(keys).length ? ["Groq"] : []),
+    ...(usableKeys(gKeys).length ? ["Gemini"] : []),
+    ...(usableKeys(lKeys).length ? ["Lovable"] : []),
+  ];
+  const publishingReady = siteVercel && siteCloudflare;
+  const connectedApps = connectors.filter((c) => c.enabled).length;
+  const nextStep = !loaded
+    ? "Loading your setup…"
+    : brainNames.length === 0
+      ? "First: add an AI key below — without one, your agent cannot answer."
+      : !publishingReady
+        ? "Next: add the Vercel + Cloudflare tokens in “Publish websites” below — that unlocks putting sites live on the internet."
+        : "Everything essential is set — your agent can answer, test, and publish.";
+
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <div className="flex items-center gap-1">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Everything your agent runs on — its brain, publishing, memory, and how it talks.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <ThemeToggle />
           <Button variant="ghost" onClick={() => router.push("/agent")}>
             <ArrowLeft />
@@ -650,11 +676,66 @@ export default function SettingsClient() {
         </div>
       </div>
 
+      {/* Your agent at a glance — plain words, no jargon */}
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Sparkles className="size-4" />
+            </span>
+            Your agent at a glance
+          </CardTitle>
+          <CardDescription>What is working right now, and what still needs you.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          <div className="flex items-start gap-2.5 text-sm">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${brainNames.length ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
+            <p>
+              <span className="font-medium">Brain (AI): </span>
+              {loaded
+                ? brainNames.length
+                  ? `${brainNames.join(", ")} ${brainNames.length > 1 ? "keys are" : "key is"} ready — your agent answers with ${brainNames[0]} first and falls back to the rest on its own.`
+                  : "No working AI key — your agent cannot answer until you add one below."
+                : "Loading…"}
+            </p>
+          </div>
+          <div className="flex items-start gap-2.5 text-sm">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${publishingReady ? "bg-emerald-400" : "bg-amber-400"}`} />
+            <p>
+              <span className="font-medium">Publishing websites: </span>
+              {loaded
+                ? publishingReady
+                  ? "Connected — your agent can publish sites live."
+                  : `Not connected yet (Vercel: ${siteVercel ? "done" : "missing"}, Cloudflare: ${siteCloudflare ? "done" : "missing"}). Previews still work; publishing needs both.`
+                : "Loading…"}
+            </p>
+          </div>
+          <div className="flex items-start gap-2.5 text-sm">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${e2bConfigured ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
+            <p>
+              <span className="font-medium">Code & browser testing: </span>
+              {loaded ? (e2bConfigured ? "On — your agent can run code and drive a browser." : "Off — add an E2B key below to turn it on.") : "Loading…"}
+            </p>
+          </div>
+          <div className="flex items-start gap-2.5 text-sm">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${connectedApps ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
+            <p>
+              <span className="font-medium">Connected apps: </span>
+              {loaded ? (connectedApps ? `${connectedApps} connected.` : "None yet — add one below if your agent should call an outside service.") : "Loading…"}
+            </p>
+          </div>
+          <p className="rounded-xl bg-muted/50 px-3.5 py-2.5 text-sm">
+            <span className="font-medium">What to do next: </span>
+            {nextStep}
+          </p>
+        </CardContent>
+      </Card>
+
       {keySection({
         icon: <KeyRound className="size-4" />,
-        title: "Groq API keys",
+        title: "Groq AI keys",
         description:
-          "Keys are AES-256 encrypted in Supabase and tested before saving. Requests rotate across healthy keys; rate-limited keys cool down automatically.",
+          "A backup brain for your agent. Keys are stored encrypted and checked before saving — the agent switches between healthy keys on its own.",
         rows: keys,
         msgText: msg,
         labelVal: label,
@@ -670,15 +751,15 @@ export default function SettingsClient() {
 
       {keySection({
         icon: <Sparkles className="size-4" />,
-        title: "Gemini API keys",
+        title: "Gemini AI keys",
         description: (
           <>
             Free keys from{" "}
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline">
               aistudio.google.com/apikey
             </a>
-            . Same vault, same rotation — chat automatically falls back across Groq, Gemini
-            and Lovable when a provider's keys are rate-limited.
+            . Same idea — the agent falls back across Groq, Gemini
+            and Lovable automatically when one is busy.
           </>
         ),
         rows: gKeys,
@@ -696,12 +777,11 @@ export default function SettingsClient() {
 
       {keySection({
         icon: <Sparkles className="size-4" />,
-        title: "Lovable AI Gateway keys",
+        title: "Lovable AI keys",
         description: (
           <>
-            Keys for <span className="font-mono text-xs">ai.gateway.lovable.dev</span> — an
-            OpenAI-compatible gateway. Add as many as you like; chat rotates across them and
-            falls back here automatically when Groq and Gemini keys are exhausted.
+            The AI gateway your agent uses most (ai.gateway.lovable.dev). Add as many keys as
+            you like — the agent rotates through them and falls back here automatically.
           </>
         ),
         rows: lKeys,
@@ -720,14 +800,14 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Brain className="size-4" />
             </span>
-            Memory
+            What your agent remembers
           </CardTitle>
           <CardDescription>
-            Facts your agent remembers about you across all conversations. It saves them
-            automatically when you share something durable — review or delete them here.
+            Facts your agent keeps about you across all chats. It saves them automatically
+            when you share something lasting — review or delete them here.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -739,7 +819,7 @@ export default function SettingsClient() {
               </p>
             )}
             {memories.map((m) => (
-              <div key={m.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+              <div key={m.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-4 py-2.5">
                 <p className="min-w-0 flex-1 text-sm">{m.content}</p>
                 <Button
                   variant="ghost"
@@ -776,25 +856,24 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Code2 className="size-4" />
             </span>
-            Code execution + Browser (E2B)
+            Code & browser testing
           </CardTitle>
           <CardDescription>
-            Lets your agent run Python/JavaScript in a secure E2B cloud sandbox — never on
-            this server. The same key also powers browser automation (a cloud desktop with
-            Chrome). Get a free key at{" "}
+            Lets your agent run code and drive a real browser in a secure cloud sandbox —
+            never on this server. The same key powers both. Get a free key at{" "}
             <a href="https://e2b.dev" target="_blank" rel="noreferrer" className="underline">
               e2b.dev
             </a>
-            . Stored AES-256 encrypted.
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Msg text={e2bMsg} />
           {e2bConfigured ? (
-            <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-2.5">
+            <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-2.5">
               <p className="flex items-center gap-2 text-sm">
                 <Badge variant="success">On</Badge>
                 E2B key configured — code execution is on
@@ -836,15 +915,14 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Globe className="size-4" />
             </span>
-            Website builder (Vercel + Cloudflare)
+            Publish websites
           </CardTitle>
           <CardDescription>
-            Lets your agent generate Next.js websites, deploy previews to Vercel, and publish
-            them live at <strong>your-site.veritask.site</strong>. Needs two API tokens, both
-            stored AES-256 encrypted and verified before saving: a{" "}
+            Lets your agent put websites live at <strong>your-site.veritask.site</strong>.
+            Needs two tokens (both checked before saving): a{" "}
             <a href="https://vercel.com/account/tokens" target="_blank" rel="noreferrer" className="underline">
               Vercel token
             </a>{" "}
@@ -852,7 +930,8 @@ export default function SettingsClient() {
             <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer" className="underline">
               Cloudflare token
             </a>{" "}
-            with DNS:Edit on the veritask.site zone only.
+            that may only edit DNS for veritask.site. Without them, the agent can still build
+            and preview sites — it just cannot publish them.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -915,16 +994,15 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <KeyRound className="size-4" />
             </span>
-            Test accounts (sign-up & login)
+            Test logins
           </CardTitle>
           <CardDescription>
-            Accounts your agent may use when testing sign-up/login flows or doing web tasks for
-            you. Passwords are AES-256 encrypted and <strong>never shown in chat</strong> — the
-            agent fills them through secure tokens, so they never pass through the conversation.
-            Add accounts for sites you test, or generate a fresh identity for a sign-up.
+            Logins your agent may use when testing sign-up or login pages for you.
+            Passwords are encrypted and <strong>never appear in chat</strong> — the agent
+            fills them securely, so they never pass through the conversation.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -934,7 +1012,7 @@ export default function SettingsClient() {
               <p className="text-sm text-muted-foreground">No test accounts yet.</p>
             )}
             {accounts.map((a) => (
-              <div key={a.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+              <div key={a.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {a.site}
@@ -996,16 +1074,14 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Plug className="size-4" />
             </span>
-            API connectors
+            Connected apps
           </CardTitle>
           <CardDescription>
-            Save API keys for services your agent can call from chat (email, domains,
-            anything with an HTTP API). Keys are AES-256 encrypted in Supabase, tested
-            before saving, and never sent to your browser. Add them here — not in chat,
-            so they never land in chat history.
+            Services your agent can call from chat (email, domains, any web service). Add
+            them here — never paste keys in chat, so they never land in chat history.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1028,7 +1104,7 @@ export default function SettingsClient() {
               <p className="text-sm text-muted-foreground">No connectors yet — add your first below.</p>
             )}
             {connectors.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5">
+              <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{c.name}</p>
                   <p className="truncate text-xs text-muted-foreground">
@@ -1120,16 +1196,16 @@ export default function SettingsClient() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Sparkles className="size-4" />
             </span>
-            Agent
+            How your agent talks
           </CardTitle>
-          <CardDescription>Default model and personality for new chats.</CardDescription>
+          <CardDescription>The default AI model and personality for new chats.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="model-select">Model</Label>
+            <Label htmlFor="model-select">AI model</Label>
             <select id="model-select" value={model} onChange={(e) => setModel(e.target.value)} className={selectClass}>
               {MODELS.map((m) => (
                 <option key={m} value={m}>{m}</option>
@@ -1137,7 +1213,7 @@ export default function SettingsClient() {
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="system-prompt">System prompt</Label>
+            <Label htmlFor="system-prompt">Personality / instructions</Label>
             <Textarea
               id="system-prompt"
               value={systemPrompt}
