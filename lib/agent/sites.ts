@@ -878,6 +878,7 @@ const selectClass =
  * Ready-made lead/contact/order form that SAVES submissions to the site
  * owner's inbox. fields: [{ name, label, type, required, placeholder, options }]
  * type: text | email | tel | number | textarea | select
+ * select options: plain strings OR { label, value } objects — both render.
  */
 export function LeadForm({
   form = "contact",
@@ -945,9 +946,12 @@ export function LeadForm({
               onChange={(e) => set(f.name, e.target.value)}
             >
               <option value="">Select…</option>
-              {(f.options || []).map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
+              {(f.options || []).map((o) => {
+                const opt = typeof o === "string" ? { label: o, value: o } : o;
+                return (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                );
+              })}
             </select>
           ) : (
             <Input
@@ -1106,8 +1110,14 @@ import { SiteFooter } from "@/components/sections/site-shell";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
+// Guarded: if site-data loses its url, metadata must degrade — never crash
+// the production build with new URL(undefined) (this exact crash killed a
+// real site build before the guard existed).
+const rawSiteUrl = siteData.url || "";
+const siteUrl = rawSiteUrl.startsWith("https://") || rawSiteUrl.startsWith("http://") ? rawSiteUrl : null;
+
 export const metadata = {
-  metadataBase: new URL(siteData.url),
+  ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
   title: {
     default: siteData.name + " — " + siteData.tagline,
     template: "%s | " + siteData.name,
@@ -1116,7 +1126,7 @@ export const metadata = {
   keywords: siteData.keywords,
   openGraph: {
     type: "website",
-    url: siteData.url,
+    ...(siteUrl ? { url: siteUrl } : {}),
     siteName: siteData.name,
     title: siteData.name + " — " + siteData.tagline,
     description: siteData.description,
@@ -1367,18 +1377,24 @@ export default function HomePage() {
 }`,
     "app/robots.js": `import { siteData } from "@/lib/site-data";
 
+const rawBase = siteData.url || "";
+const base = rawBase.startsWith("https://") || rawBase.startsWith("http://") ? (rawBase.endsWith("/") ? rawBase.slice(0, -1) : rawBase) : "";
+
 export default function robots() {
   return {
     rules: { userAgent: "*", allow: "/" },
-    sitemap: siteData.url + "/sitemap.xml",
+    ...(base ? { sitemap: base + "/sitemap.xml" } : {}),
   };
 }`,
     "app/sitemap.js": `import { siteData } from "@/lib/site-data";
 
+const rawBase = siteData.url || "";
+const base = rawBase.startsWith("https://") || rawBase.startsWith("http://") ? (rawBase.endsWith("/") ? rawBase.slice(0, -1) : rawBase) : "https://example.com";
+
 export default function sitemap() {
   const now = new Date();
   return (siteData.sitemapRoutes || ["/"]).map((route, i) => ({
-    url: siteData.url + (route === "/" ? "" : route),
+    url: base + (route === "/" ? "" : route),
     lastModified: now,
     changeFrequency: i === 0 ? "weekly" : "monthly",
     priority: i === 0 ? 1 : 0.7,

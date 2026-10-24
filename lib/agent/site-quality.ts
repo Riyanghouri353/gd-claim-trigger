@@ -142,6 +142,9 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
   if (!siteData) {
     add({ severity: "error", category: "seo", message: "lib/site-data.js is missing — layout, header, footer and SEO routes depend on it.", fix: "Recreate lib/site-data.js with name, tagline, description, nav, contact and theme." });
   } else {
+    if (!/url:\s*"https?:\/\//.test(siteData)) {
+      add({ severity: "error", category: "seo", file: "lib/site-data.js", message: "siteData has no valid url — sitemap/robots go wrong and SEO metadata degrades.", fix: "Add url: \"https://<slug>.veritask.site\" to siteData (the site's public address)." });
+    }
     if (/Rewrite this/.test(siteData) || /tell visitors, in one or two sentences/i.test(siteData)) {
       add({ severity: "error", category: "seo", file: "lib/site-data.js", message: "The SEO description is still the starter placeholder text.", fix: "Write a real 50–160 character description: what the business offers, for whom, and why." });
     }
