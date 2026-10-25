@@ -20,6 +20,7 @@ import {
   Code2,
   Database,
   Globe,
+  Gauge,
   AlarmClock,
   KeyRound,
   Layers,
@@ -657,6 +658,15 @@ export default function ChatApp() {
               aria-label="Knowledge base"
             >
               <BookOpen className="size-[18px]" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => router.push("/agent/load-tests")}
+              title="Load tests"
+              aria-label="Load tests"
+            >
+              <Gauge className="size-[18px]" />
             </Button>
             <Button
               variant="ghost"
