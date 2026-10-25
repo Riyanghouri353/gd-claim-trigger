@@ -163,6 +163,12 @@ export type Database = {
         Update: { conversation_id?: string | null; goal?: string; status?: string; plan?: any; progress?: any; result?: string | null; error?: string | null; attempts?: number; updated_at?: string; started_at?: string | null; finished_at?: string | null; heartbeat_at?: string | null };
         Relationships: [];
       };
+      load_tests: {
+        Row: { id: string; url: string; mode: string; requested: number; rps: number | null; duration_sec: number | null; concurrency: number; total: number; succeeded: number; failed: number; error_rate: number; status_counts: any; errors: any; latency_ms: any; actual_rps: number; verdict: string; created_at: string };
+        Insert: { url: string; mode: string; requested: number; rps?: number | null; duration_sec?: number | null; concurrency: number; total: number; succeeded: number; failed: number; error_rate: number; status_counts?: any; errors?: any; latency_ms?: any; actual_rps: number; verdict: string };
+        Update: { url?: string; mode?: string; requested?: number; rps?: number | null; duration_sec?: number | null; concurrency?: number; total?: number; succeeded?: number; failed?: number; error_rate?: number; status_counts?: any; errors?: any; latency_ms?: any; actual_rps?: number; verdict?: string };
+        Relationships: [];
+      };
       agent_task_runs: {
         Row: { id: string; task_id: string; started_at: string; finished_at: string | null; status: string; result_excerpt: string | null; error: string | null };
         Insert: { task_id: string; status?: string; finished_at?: string | null; result_excerpt?: string | null; error?: string | null };
