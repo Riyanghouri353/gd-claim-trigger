@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, ArrowLeft, Loader2, Play, Trash2 } from "lucide-react";
+import { AlarmClock, ArrowLeft, Brain, Loader2, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,19 @@ interface Run {
   error: string | null;
 }
 
+interface DeepTask {
+  id: string;
+  conversation_id: string | null;
+  goal: string;
+  status: string;
+  plan: { title: string; detail: string }[];
+  progress: { at: string; note: string }[];
+  result: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const selectClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
@@ -69,6 +82,17 @@ export default function TasksClient() {
   const [runsFor, setRunsFor] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [deepTasks, setDeepTasks] = useState<DeepTask[]>([]);
+  const [deepGoal, setDeepGoal] = useState("");
+  const [deepBusy, setDeepBusy] = useState(false);
+  const [deepMsg, setDeepMsg] = useState("");
+  const [deepConfirmId, setDeepConfirmId] = useState<string | null>(null);
+  const [deepOpenId, setDeepOpenId] = useState<string | null>(null);
+
+  async function loadDeep() {
+    const res = await fetch("/api/agent/deep-tasks");
+    if (res.ok) setDeepTasks((await res.json()).tasks ?? []);
+  }
 
   async function load() {
     const res = await fetch("/api/agent/tasks");
@@ -78,6 +102,34 @@ export default function TasksClient() {
     }
     if (res.ok) setTasks((await res.json()).tasks ?? []);
     setLoading(false);
+    loadDeep();
+  }
+
+  async function createDeep(e: React.FormEvent) {
+    e.preventDefault();
+    if (!deepGoal.trim()) return;
+    setDeepBusy(true);
+    setDeepMsg("");
+    const res = await fetch("/api/agent/deep-tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal: deepGoal.trim() }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setDeepMsg("Deep task started — its report will land in a new chat in the sidebar when done.");
+      setDeepGoal("");
+      loadDeep();
+    } else {
+      setDeepMsg(j.error || "Could not start the deep task.");
+    }
+    setDeepBusy(false);
+  }
+
+  async function deleteDeep(id: string) {
+    await fetch(`/api/agent/deep-tasks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    setDeepConfirmId(null);
+    loadDeep();
   }
 
   useEffect(() => {
@@ -269,6 +321,120 @@ export default function TasksClient() {
               </Button>
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Deep tasks — long background jobs started from chat or here */}
+      <Card className="mb-8 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Brain className="size-4" />
+            </span>
+            Deep tasks
+          </CardTitle>
+          <CardDescription>
+            Long, multi-step jobs that run in the background (up to 20 minutes, 40 steps) and report back into
+            chat. Ask in chat for one, or start one here — it keeps working even if you leave.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {deepMsg && <p className="rounded-xl bg-muted/50 px-3.5 py-2.5 text-sm">{deepMsg}</p>}
+          <form onSubmit={createDeep} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={deepGoal}
+              onChange={(e) => setDeepGoal(e.target.value)}
+              placeholder="e.g. Research the top 5 AI coding tools and compare pricing"
+              className="flex-1"
+            />
+            <Button type="submit" disabled={deepBusy || !deepGoal.trim()} className="shrink-0">
+              {deepBusy && <Loader2 className="animate-spin" />}
+              Start deep task
+            </Button>
+          </form>
+          {deepTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No deep tasks yet — start one above, or ask in chat for a long job.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {deepTasks.map((d) => (
+                <div key={d.id} className="rounded-xl border bg-muted/40 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 flex-1 truncate text-sm font-medium">{d.goal}</p>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {d.status === "running" && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                      <Badge
+                        variant={
+                          d.status === "done" ? "success" : d.status === "failed" ? "destructive" : "secondary"
+                        }
+                      >
+                        {d.status}
+                      </Badge>
+                      <Button variant="ghost" size="sm" onClick={() => router.push("/agent")}>
+                        Open chat
+                      </Button>
+                      {deepConfirmId === d.id ? (
+                        <>
+                          <Button size="sm" variant="destructive" onClick={() => deleteDeep(d.id)}>
+                            Confirm
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setDeepConfirmId(null)}>
+                            Keep
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setDeepConfirmId(d.id)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
+                    onClick={() => setDeepOpenId(deepOpenId === d.id ? null : d.id)}
+                  >
+                    {deepOpenId === d.id ? "Hide plan & progress" : "Show plan & progress"}
+                  </button>
+                  {deepOpenId === d.id && (
+                    <div className="mt-2 space-y-2 text-sm">
+                      {d.plan.length > 0 && (
+                        <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+                          {d.plan.map((s, i) => (
+                            <li key={i}>
+                              <span className="text-foreground">{s.title}</span>
+                              {s.detail ? ` — ${s.detail}` : ""}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                      {d.progress.length > 0 && (
+                        <ul className="space-y-0.5 text-xs text-muted-foreground">
+                          {d.progress.slice(-8).map((p, i) => (
+                            <li key={i}>
+                              {new Date(p.at).toLocaleTimeString()} — {p.note}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {d.status === "failed" && d.error && (
+                        <p className="text-destructive">{d.error}</p>
+                      )}
+                      {d.status === "done" && d.result && (
+                        <p className="whitespace-pre-wrap text-muted-foreground">{d.result.slice(0, 600)}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

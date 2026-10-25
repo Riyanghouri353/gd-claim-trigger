@@ -18,6 +18,13 @@ import {
 import { listConnectors, callConnector } from "@/lib/agent/connectors";
 import { listMemories, addMemory } from "@/lib/agent/memory";
 import { searchKnowledge, ingestDocument, getKbStats } from "@/lib/agent/knowledge";
+import {
+  createDeepTask,
+  getDeepTask,
+  getLatestDeepTaskForConversation,
+  listDeepTasks,
+  runDeepTask,
+} from "@/lib/agent/deep-tasks";
 import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
@@ -248,6 +255,14 @@ export async function POST(req: Request) {
   } catch {
     /* knowledge base unavailable — chat still works */
   }
+
+  // Deep tasks: long jobs belong in the background, not in this turn.
+  systemPrompt +=
+    "\n\nDeep tasks: when the user asks for something long or multi-step — research a topic, test a whole website or flow, " +
+    "compare options, build a big report — use start_deep_task instead of doing it inside this turn. " +
+    "The job runs in the background (up to 20 minutes, 40 steps) and posts its full report back into this conversation, " +
+    "so the user can keep chatting or leave and come back. Use deep_task_status when they ask how it is going, " +
+    "and list_deep_tasks to show recent ones. Never start a deep task for a quick question that fits in one reply.";
 
   const e2bKey = await getE2BKey().catch(() => null);
 
@@ -656,6 +671,62 @@ export async function POST(req: Request) {
               lastRun: t.last_run_at,
               nextRun: t.next_run_at,
             })),
+          };
+        },
+      }),
+      start_deep_task: tool({
+        description:
+          "Start a DEEP TASK: a long, multi-step background job (research a topic, test a whole website, build a big report, compare options) that runs detached from this chat with a larger step budget and up to 20 minutes, then posts its full report back into this conversation. Use this INSTEAD of doing a long job inside this turn — never burn this turn's step budget on work that belongs in the background. Tell the user it started, that they can keep chatting or leave, and that the report will appear here (and on the Tasks page under Deep tasks) when done.",
+        inputSchema: z.object({
+          goal: z.string().describe("The complete job, self-contained — the background run sees no chat history beyond this goal"),
+        }),
+        execute: async ({ goal }) => {
+          try {
+            const task = await createDeepTask(conversationId ?? null, goal);
+            const run = await runDeepTask(task.id);
+            return {
+              ok: true,
+              id: task.id,
+              status: run.queued ? "queued (2 deep tasks already running — starts when one finishes)" : "running",
+              note: "The report will appear in this conversation when the task finishes. Track it on the Tasks page under Deep tasks.",
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Could not start the deep task" };
+          }
+        },
+      }),
+      deep_task_status: tool({
+        description:
+          "Check a deep task's status, plan and progress. Use when the user asks how their deep task is going. Without an id, checks the latest deep task in this conversation.",
+        inputSchema: z.object({
+          id: z.string().optional().describe("Deep task id, when known"),
+        }),
+        execute: async ({ id }) => {
+          const task = id
+            ? await getDeepTask(id)
+            : conversationId
+              ? await getLatestDeepTaskForConversation(conversationId)
+              : null;
+          if (!task) return { ok: false, error: "No deep task found" };
+          return {
+            ok: true,
+            goal: task.goal,
+            status: task.status,
+            plan: task.plan,
+            progress: task.progress.slice(-10),
+            result: task.status === "done" ? task.result : undefined,
+            error: task.error,
+          };
+        },
+      }),
+      list_deep_tasks: tool({
+        description: "List recent deep tasks with their status, newest first.",
+        inputSchema: z.object({}),
+        execute: async () => {
+          const tasks = await listDeepTasks(10);
+          return {
+            ok: true,
+            tasks: tasks.map((t) => ({ id: t.id, goal: t.goal, status: t.status, created: t.created_at, finished: t.finished_at })),
           };
         },
       }),
