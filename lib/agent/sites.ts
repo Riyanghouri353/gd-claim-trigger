@@ -412,7 +412,13 @@ export function SectionHeading({ eyebrow, title, description, align = "center", 
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
-  const initial = (siteData.name || "S").trim().charAt(0).toUpperCase();
+  // Defensive: an incomplete site-data file must degrade, never crash the
+  // build — missing nav/contact/CTA fall back to sensible defaults.
+  const nav = siteData.nav || [];
+  const contact = siteData.contact || {};
+  const cta = siteData.primaryCta || { label: "Contact", href: "/#contact" };
+  const siteName = siteData.name || "Site";
+  const initial = siteName.trim().charAt(0).toUpperCase();
   return (
     <footer className="border-t bg-muted/30">
       <Container className="grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
@@ -421,14 +427,14 @@ export function SiteFooter() {
             <span className="font-display grid size-9 place-items-center rounded-xl bg-primary text-base font-bold text-primary-foreground" aria-hidden="true">
               {initial}
             </span>
-            <span className="font-display text-lg font-bold tracking-tight">{siteData.name}</span>
+            <span className="font-display text-lg font-bold tracking-tight">{siteName}</span>
           </p>
-          <p className="mt-4 max-w-xs text-sm leading-6 text-muted-foreground">{siteData.tagline}</p>
+          <p className="mt-4 max-w-xs text-sm leading-6 text-muted-foreground">{siteData.tagline || ""}</p>
         </div>
         <nav aria-label="Footer">
           <p className="text-sm font-semibold">Explore</p>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            {siteData.nav.map((item) => (
+            {nav.map((item) => (
               <li key={item.href}>
                 <Link className="transition hover:text-foreground" href={item.href}>{item.label}</Link>
               </li>
@@ -438,9 +444,9 @@ export function SiteFooter() {
         <div>
           <p className="text-sm font-semibold">Contact</p>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            {siteData.contact.email ? <li>{siteData.contact.email}</li> : null}
-            {siteData.contact.phone ? <li>{siteData.contact.phone}</li> : null}
-            {siteData.contact.location ? <li>{siteData.contact.location}</li> : null}
+            {contact.email ? <li>{contact.email}</li> : null}
+            {contact.phone ? <li>{contact.phone}</li> : null}
+            {contact.location ? <li>{contact.location}</li> : null}
           </ul>
         </div>
         <div>
@@ -448,14 +454,14 @@ export function SiteFooter() {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             Tell us what you need and we will reply with clear next steps.
           </p>
-          <Link href={siteData.primaryCta.href} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">
-            {siteData.primaryCta.label}
+          <Link href={cta.href} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">
+            {cta.label}
           </Link>
         </div>
       </Container>
       <div className="border-t py-5">
         <Container className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>© {year} {siteData.name}. All rights reserved.</p>
+          <p>© {year} {siteName}. All rights reserved.</p>
           <p>Built with a production-grade Next.js scaffold.</p>
         </Container>
       </div>
@@ -483,6 +489,10 @@ export function SiteHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
   const initial = (siteData.name || "S").trim().charAt(0).toUpperCase();
+  // Defensive: incomplete site-data degrades instead of crashing the build.
+  const nav = siteData.nav || [];
+  const cta = siteData.primaryCta || { label: "Contact", href: "/#contact" };
+  const siteName = siteData.name || "Site";
   return (
     <header
       className={cn(
@@ -491,14 +501,14 @@ export function SiteHeader() {
       )}
     >
       <Container className="flex h-16 items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-2.5" aria-label={siteData.name + " — home"}>
+        <Link href="/" className="flex items-center gap-2.5" aria-label={siteName + " — home"}>
           <span className="font-display grid size-9 place-items-center rounded-xl bg-primary text-base font-bold text-primary-foreground" aria-hidden="true">
             {initial}
           </span>
-          <span className="font-display text-lg font-bold tracking-tight">{siteData.name}</span>
+          <span className="font-display text-lg font-bold tracking-tight">{siteName}</span>
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
-          {siteData.nav.map((item) => (
+          {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -510,8 +520,8 @@ export function SiteHeader() {
         </nav>
         <div className="hidden md:block">
           <Button asChild size="sm" className="rounded-full px-4">
-            <Link href={siteData.primaryCta.href}>
-              {siteData.primaryCta.label} <ArrowRight />
+            <Link href={cta.href}>
+              {cta.label} <ArrowRight />
             </Link>
           </Button>
         </div>
@@ -529,7 +539,7 @@ export function SiteHeader() {
       {open ? (
         <nav aria-label="Mobile" className="border-t md:hidden">
           <Container className="grid gap-1 py-4">
-            {siteData.nav.map((item) => (
+            {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -540,8 +550,8 @@ export function SiteHeader() {
               </Link>
             ))}
             <Button asChild className="mt-2 rounded-full">
-              <Link href={siteData.primaryCta.href} onClick={() => setOpen(false)}>
-                {siteData.primaryCta.label}
+              <Link href={cta.href} onClick={() => setOpen(false)}>
+                {cta.label}
               </Link>
             </Button>
           </Container>
@@ -1324,11 +1334,12 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
+  const theme = siteData.theme || {};
   const themeStyle = {
-    "--primary": siteData.theme.primary,
-    "--primary-foreground": siteData.theme.primaryForeground,
-    "--ring": siteData.theme.primary,
-    "--radius": siteData.theme.radius,
+    "--primary": theme.primary || "oklch(0.205 0 0)",
+    "--primary-foreground": theme.primaryForeground || "oklch(0.985 0 0)",
+    "--ring": theme.primary || "oklch(0.205 0 0)",
+    "--radius": theme.radius || "0.625rem",
   };
   return (
     <html lang="en">

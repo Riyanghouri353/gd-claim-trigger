@@ -85,7 +85,7 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
       const sectionRe = /(HeroSection|FeatureGrid|StatsSection|StepsSection|TestimonialGrid|PricingSection|FaqSection|CtaSection|GallerySection|LogoCloud|ContactSection)/g;
       let sm: RegExpExecArray | null;
       while ((sm = sectionRe.exec(c)) !== null) homeSections.add(sm[1]);
-      homeHasImage = /next\/image|image=\{|<img/.test(c);
+      homeHasImage = /next\/image|images?=\{|<img/.test(c);
     }
 
     if (/lorem ipsum/i.test(c)) {
@@ -160,8 +160,8 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
       add({ severity: "info", category: "design", file: "app/page.jsx", message: `Home page composes only ${homeSections.size} section type(s) — it will feel thin.`, fix: "Compose 4+ section types (hero, bento features, stats/steps, gallery, pricing/FAQ, CTA) for a professional rhythm." });
     }
   }
-  if (pages.length > 0 && responsiveHits === 0) {
-    add({ severity: "warning", category: "responsive", message: "No responsive (sm:/md:/lg:) classes anywhere in custom code.", fix: "Design mobile-first and verify each breakpoint — sections from the library already handle most of this." });
+  if (pages.length > 0 && responsiveHits === 0 && sectionImports === 0) {
+    add({ severity: "warning", category: "responsive", message: "No responsive (sm:/md:/lg:) classes anywhere in custom code and no section-library composition.", fix: "Design mobile-first and verify each breakpoint — composing the section library covers responsiveness by default." });
   }
 
   // Site data / SEO foundation
