@@ -572,7 +572,28 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Container, Section, SectionHeading } from "@/components/sections/site-shell";
 import { cn } from "@/lib/utils";
 
-export function HeroSection({ eyebrow, title, description, primaryCta, secondaryCta, image, children }) {
+// Prop-dialect normalization: models naturally write subtitle for
+// description, items for features, { text } CTAs, plain-string images,
+// { url } gallery items, { question/answer } FAQs and string icon names.
+// The library accepts both dialects and normalizes here, so authored pages
+// render as intended instead of silently dropping content.
+function descOf(description, subtitle) {
+  return description || subtitle || undefined;
+}
+function ctaOf(c) {
+  return c ? { label: c.label || c.text || "Learn more", href: c.href || c.url || "#" } : null;
+}
+function imgOf(image, imageAlt) {
+  if (!image) return null;
+  if (typeof image === "string") return { src: image, alt: imageAlt || "" };
+  return { src: image.src || image.url, alt: image.alt || imageAlt || "" };
+}
+
+export function HeroSection({ eyebrow, title, description, subtitle, primaryCta, secondaryCta, image, imageAlt, children }) {
+  const desc = descOf(description, subtitle);
+  const heroImage = imgOf(image, imageAlt);
+  const primary = ctaOf(primaryCta);
+  const secondary = ctaOf(secondaryCta);
   const copy = (
     <>
       {eyebrow ? (
@@ -583,19 +604,19 @@ export function HeroSection({ eyebrow, title, description, primaryCta, secondary
       <h1 className="font-display text-balance text-5xl font-bold leading-[1.04] tracking-tight sm:text-6xl lg:text-7xl">
         {title}
       </h1>
-      {description ? (
-        <p className="mt-6 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
+      {desc ? (
+        <p className="mt-6 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{desc}</p>
       ) : null}
-      {(primaryCta || secondaryCta) && (
+      {(primary || secondary) && (
         <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
-          {primaryCta ? (
+          {primary ? (
             <Button asChild size="lg" className="rounded-full px-7 shadow-lg shadow-primary/20">
-              <Link href={primaryCta.href}>{primaryCta.label} <ArrowRight /></Link>
+              <Link href={primary.href}>{primary.label} <ArrowRight /></Link>
             </Button>
           ) : null}
-          {secondaryCta ? (
+          {secondary ? (
             <Button asChild size="lg" variant="outline" className="rounded-full px-7">
-              <Link href={secondaryCta.href}>{secondaryCta.label}</Link>
+              <Link href={secondary.href}>{secondary.label}</Link>
             </Button>
           ) : null}
         </div>
@@ -607,14 +628,14 @@ export function HeroSection({ eyebrow, title, description, primaryCta, secondary
       <div className="hero-glow pointer-events-none absolute inset-0" aria-hidden="true" />
       <div className="bg-grid pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]" aria-hidden="true" />
       <Container className="relative">
-        {image ? (
+        {heroImage ? (
           <div className="grid items-center gap-12 lg:grid-cols-2">
             <div className="animate-fade-up">{copy}</div>
             <div className="animate-fade-up relative">
               <div className="relative overflow-hidden rounded-[2rem] shadow-2xl ring-1 ring-foreground/10">
                 <Image
-                  src={image.src}
-                  alt={image.alt || ""}
+                  src={heroImage.src}
+                  alt={heroImage.alt || ""}
                   width={1200}
                   height={900}
                   className="aspect-[4/3] w-full object-cover"
@@ -637,14 +658,19 @@ export function HeroSection({ eyebrow, title, description, primaryCta, secondary
   );
 }
 
-export function FeatureGrid({ eyebrow, title, description, features = [], variant = "grid" }) {
+export function FeatureGrid({ eyebrow, title, description, subtitle, features, items, variant = "grid" }) {
   const bento = variant === "bento";
+  const list = (features || items || []).map((f) => ({
+    icon: f.icon && typeof f.icon !== "string" ? f.icon : null,
+    title: f.title || f.name || "",
+    text: [f.text || f.description, f.muted].filter(Boolean).join(" "),
+  }));
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <div className={cn("mt-14 grid gap-4 sm:grid-cols-2", bento ? "lg:grid-cols-3" : "lg:grid-cols-3")}>
-          {features.map((f, i) => (
+          {list.map((f, i) => (
             <Card
               key={f.title}
               className={cn(
@@ -689,14 +715,17 @@ export function LogoCloud({ title, logos = [] }) {
   );
 }
 
-export function GallerySection({ eyebrow, title, description, images = [] }) {
-  if (!images.length) return null;
+export function GallerySection({ eyebrow, title, description, subtitle, images = [] }) {
+  const items = images
+    .map((img) => (typeof img === "string" ? { src: img } : { src: img.src || img.url, alt: img.alt, caption: img.caption || img.alt }))
+    .filter((img) => img.src);
+  if (!items.length) return null;
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {images.map((img) => (
+          {items.map((img) => (
             <figure key={img.src} className="group relative overflow-hidden rounded-3xl ring-1 ring-foreground/10">
               <Image
                 src={img.src}
@@ -719,11 +748,12 @@ export function GallerySection({ eyebrow, title, description, images = [] }) {
 }
 
 export function StatsSection({ stats = [] }) {
+  const list = stats.map((s) => ({ value: s.value ?? s.number ?? "", label: s.label || "", detail: s.detail }));
   return (
     <Section className="border-y bg-muted/30 py-14 sm:py-16">
       <Container>
         <dl className="grid gap-10 text-center sm:grid-cols-3 sm:divide-x sm:divide-border">
-          {stats.map((s) => (
+          {list.map((s) => (
             <div key={s.label} className="px-4">
               <dd className="font-display text-5xl font-bold tracking-tight text-primary">{s.value}</dd>
               <dt className="mt-2 text-sm font-medium">{s.label}</dt>
@@ -736,13 +766,14 @@ export function StatsSection({ stats = [] }) {
   );
 }
 
-export function StepsSection({ eyebrow, title, description, steps = [] }) {
+export function StepsSection({ eyebrow, title, description, subtitle, steps = [] }) {
+  const list = steps.map((s) => ({ title: s.title || s.name || "", text: s.text || s.description || "" }));
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <ol className="mt-14 grid gap-4 md:grid-cols-3">
-          {steps.map((s, i) => (
+          {list.map((s, i) => (
             <li key={s.title}>
               <Card className="h-full transition duration-300 hover:-translate-y-1 hover:shadow-xl">
                 <CardHeader>
@@ -761,13 +792,18 @@ export function StepsSection({ eyebrow, title, description, steps = [] }) {
   );
 }
 
-export function TestimonialGrid({ eyebrow, title, description, testimonials = [] }) {
+export function TestimonialGrid({ eyebrow, title, description, subtitle, testimonials = [] }) {
+  const list = testimonials.map((t) => ({
+    quote: t.quote || t.text || "",
+    name: t.name || t.author || "",
+    role: t.role,
+  }));
   return (
     <Section className="bg-muted/30">
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <div className="mt-14 grid gap-4 md:grid-cols-3">
-          {testimonials.map((t) => (
+          {list.map((t) => (
             <Card key={t.name} className="h-full transition duration-300 hover:-translate-y-1 hover:shadow-xl">
               <CardContent className="flex h-full flex-col pt-6">
                 <div className="flex items-center justify-between">
@@ -799,13 +835,28 @@ export function TestimonialGrid({ eyebrow, title, description, testimonials = []
   );
 }
 
-export function PricingSection({ eyebrow, title, description, plans = [] }) {
+export function PricingSection({ eyebrow, title, description, subtitle, plans = [] }) {
+  const list = plans.map((p) => {
+    const rawPrice = String(p.price ?? "");
+    const price = rawPrice && !rawPrice.includes("$") && /^[\d.,]+$/.test(rawPrice.trim()) ? "$" + rawPrice.trim() : rawPrice;
+    const per = !p.period ? "" : p.period.startsWith("/") || p.period.startsWith("per") ? p.period : "/ " + p.period;
+    return {
+      name: p.name || "",
+      description: p.description || p.tagline || "",
+      price,
+      period: per,
+      features: (p.features || []).map((f) => (typeof f === "string" ? f : f.text || f.label || "")),
+      featured: !!p.featured,
+      cta: p.cta || p.ctaLabel || p.ctaText || "Get started",
+      ctaHref: p.ctaHref || p.ctaUrl || "#contact",
+    };
+  });
   return (
     <Section>
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <div className="mt-14 grid items-stretch gap-4 lg:grid-cols-3">
-          {plans.map((p) => (
+          {list.map((p) => (
             <Card
               key={p.name}
               className={cn(
@@ -839,7 +890,7 @@ export function PricingSection({ eyebrow, title, description, plans = [] }) {
               </CardContent>
               <CardFooter>
                 <Button asChild className={cn("w-full rounded-full", p.featured && "shadow-lg shadow-primary/20")} variant={p.featured ? "default" : "outline"}>
-                  <Link href={p.ctaHref || "#contact"}>{p.cta || "Get started"}</Link>
+                  <Link href={p.ctaHref}>{p.cta}</Link>
                 </Button>
               </CardFooter>
             </Card>
@@ -850,15 +901,16 @@ export function PricingSection({ eyebrow, title, description, plans = [] }) {
   );
 }
 
-export function FaqSection({ eyebrow, title, description, faqs = [] }) {
+export function FaqSection({ eyebrow, title, description, subtitle, faqs = [] }) {
+  const list = faqs.map((f) => ({ q: f.q || f.question || "", a: f.a || f.answer || "" }));
   return (
     <Section>
       <Container className="max-w-3xl">
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={descOf(description, subtitle)} />
         <div className="mt-12 rounded-3xl border bg-card px-6 shadow-sm">
           <Accordion type="single" collapsible>
-            {faqs.map((f, i) => (
-              <AccordionItem key={f.q} value={"faq-" + i} className={i === faqs.length - 1 ? "border-b-0" : ""}>
+            {list.map((f, i) => (
+              <AccordionItem key={f.q} value={"faq-" + i} className={i === list.length - 1 ? "border-b-0" : ""}>
                 <AccordionTrigger className="text-left font-medium">{f.q}</AccordionTrigger>
                 <AccordionContent className="leading-7">{f.a}</AccordionContent>
               </AccordionItem>
@@ -870,7 +922,8 @@ export function FaqSection({ eyebrow, title, description, faqs = [] }) {
   );
 }
 
-export function CtaSection({ title, description, cta }) {
+export function CtaSection({ title, description, subtitle, cta }) {
+  const action = ctaOf(cta);
   return (
     <Section className="pt-0">
       <Container>
@@ -879,12 +932,12 @@ export function CtaSection({ title, description, cta }) {
           <div className="pointer-events-none absolute -bottom-24 -left-16 size-72 rounded-full bg-black/10 blur-3xl" aria-hidden="true" />
           <div className="relative">
             <h2 className="font-display mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-5xl">{title}</h2>
-            {description ? (
-              <p className="mx-auto mt-5 max-w-xl text-pretty leading-7 opacity-85">{description}</p>
+            {descOf(description, subtitle) ? (
+              <p className="mx-auto mt-5 max-w-xl text-pretty leading-7 opacity-85">{descOf(description, subtitle)}</p>
             ) : null}
-            {cta ? (
+            {action ? (
               <Button asChild size="lg" variant="secondary" className="mt-9 rounded-full px-7 shadow-lg">
-                <Link href={cta.href}>{cta.label} <ArrowRight /></Link>
+                <Link href={action.href}>{action.label} <ArrowRight /></Link>
               </Button>
             ) : null}
           </div>
