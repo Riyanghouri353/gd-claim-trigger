@@ -385,18 +385,26 @@ export function Container({ className, ...props }) {
 }
 
 export function Section({ className, ...props }) {
-  return <section className={cn("py-16 sm:py-20 lg:py-24", className)} {...props} />;
+  return <section className={cn("py-20 sm:py-24 lg:py-28", className)} {...props} />;
 }
 
 export function SectionHeading({ eyebrow, title, description, align = "center", className }) {
   return (
     <div className={cn("max-w-2xl", align === "center" ? "mx-auto text-center" : "text-left", className)}>
       {eyebrow ? (
-        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-primary">{eyebrow}</p>
+        <p
+          className={cn(
+            "mb-4 inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary",
+            align === "center" ? "" : ""
+          )}
+        >
+          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+          {eyebrow}
+        </p>
       ) : null}
-      <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      <h2 className="font-display text-balance text-4xl font-bold tracking-tight sm:text-5xl">{title}</h2>
       {description ? (
-        <p className="mt-4 text-pretty text-base leading-7 text-muted-foreground sm:text-lg">{description}</p>
+        <p className="mt-5 text-pretty text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">{description}</p>
       ) : null}
     </div>
   );
@@ -404,19 +412,25 @@ export function SectionHeading({ eyebrow, title, description, align = "center", 
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
+  const initial = (siteData.name || "S").trim().charAt(0).toUpperCase();
   return (
     <footer className="border-t bg-muted/30">
-      <Container className="grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-4">
+      <Container className="grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <p className="text-base font-semibold tracking-tight">{siteData.name}</p>
-          <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{siteData.tagline}</p>
+          <p className="flex items-center gap-2.5">
+            <span className="font-display grid size-9 place-items-center rounded-xl bg-primary text-base font-bold text-primary-foreground" aria-hidden="true">
+              {initial}
+            </span>
+            <span className="font-display text-lg font-bold tracking-tight">{siteData.name}</span>
+          </p>
+          <p className="mt-4 max-w-xs text-sm leading-6 text-muted-foreground">{siteData.tagline}</p>
         </div>
         <nav aria-label="Footer">
           <p className="text-sm font-semibold">Explore</p>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
             {siteData.nav.map((item) => (
               <li key={item.href}>
-                <Link className="hover:text-foreground" href={item.href}>{item.label}</Link>
+                <Link className="transition hover:text-foreground" href={item.href}>{item.label}</Link>
               </li>
             ))}
           </ul>
@@ -451,34 +465,51 @@ export function SiteFooter() {
 `,
   "components/sections/site-header.jsx": `"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { siteData } from "@/lib/site-data";
 import { Container } from "@/components/sections/site-shell";
+import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  const initial = (siteData.name || "S").trim().charAt(0).toUpperCase();
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur">
+    <header
+      className={cn(
+        "sticky top-0 z-50 border-b bg-background/85 backdrop-blur transition-shadow",
+        scrolled ? "shadow-[0_1px_24px_-12px_rgba(0,0,0,0.25)]" : ""
+      )}
+    >
       <Container className="flex h-16 items-center justify-between gap-4">
-        <Link href="/" className="text-base font-semibold tracking-tight" aria-label={siteData.name + " — home"}>
-          {siteData.name}
+        <Link href="/" className="flex items-center gap-2.5" aria-label={siteData.name + " — home"}>
+          <span className="font-display grid size-9 place-items-center rounded-xl bg-primary text-base font-bold text-primary-foreground" aria-hidden="true">
+            {initial}
+          </span>
+          <span className="font-display text-lg font-bold tracking-tight">{siteData.name}</span>
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
           {siteData.nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="rounded-full px-3.5 py-2 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
             >
               {item.label}
             </Link>
           ))}
         </nav>
         <div className="hidden md:block">
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="rounded-full px-4">
             <Link href={siteData.primaryCta.href}>
               {siteData.primaryCta.label} <ArrowRight />
             </Link>
@@ -508,7 +539,7 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            <Button asChild className="mt-2">
+            <Button asChild className="mt-2 rounded-full">
               <Link href={siteData.primaryCta.href} onClick={() => setOpen(false)}>
                 {siteData.primaryCta.label}
               </Link>
@@ -521,7 +552,8 @@ export function SiteHeader() {
 }
 `,
   "components/sections/marketing.jsx": `import Link from "next/link";
-import { ArrowRight, Check, Star } from "lucide-react";
+import Image from "next/image";
+import { ArrowRight, Check, Quote, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -530,51 +562,94 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Container, Section, SectionHeading } from "@/components/sections/site-shell";
 import { cn } from "@/lib/utils";
 
-export function HeroSection({ eyebrow, title, description, primaryCta, secondaryCta, children }) {
+export function HeroSection({ eyebrow, title, description, primaryCta, secondaryCta, image, children }) {
+  const copy = (
+    <>
+      {eyebrow ? (
+        <Badge variant="secondary" className="mb-5 rounded-full px-3 py-1 text-xs font-semibold">
+          {eyebrow}
+        </Badge>
+      ) : null}
+      <h1 className="font-display text-balance text-5xl font-bold leading-[1.04] tracking-tight sm:text-6xl lg:text-7xl">
+        {title}
+      </h1>
+      {description ? (
+        <p className="mt-6 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
+      ) : null}
+      {(primaryCta || secondaryCta) && (
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+          {primaryCta ? (
+            <Button asChild size="lg" className="rounded-full px-7 shadow-lg shadow-primary/20">
+              <Link href={primaryCta.href}>{primaryCta.label} <ArrowRight /></Link>
+            </Button>
+          ) : null}
+          {secondaryCta ? (
+            <Button asChild size="lg" variant="outline" className="rounded-full px-7">
+              <Link href={secondaryCta.href}>{secondaryCta.label}</Link>
+            </Button>
+          ) : null}
+        </div>
+      )}
+    </>
+  );
   return (
-    <Section className="overflow-hidden pb-14 pt-14 sm:pt-20">
-      <Container className="text-center">
-        {eyebrow ? (
-          <Badge variant="secondary" className="mb-5">{eyebrow}</Badge>
-        ) : null}
-        <h1 className="mx-auto max-w-3xl text-balance text-4xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
-          {title}
-        </h1>
-        {description ? (
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
-        ) : null}
-        {(primaryCta || secondaryCta) && (
-          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {primaryCta ? (
-              <Button asChild size="lg">
-                <Link href={primaryCta.href}>{primaryCta.label} <ArrowRight /></Link>
-              </Button>
-            ) : null}
-            {secondaryCta ? (
-              <Button asChild size="lg" variant="outline">
-                <Link href={secondaryCta.href}>{secondaryCta.label}</Link>
-              </Button>
-            ) : null}
+    <Section className="relative overflow-hidden pb-16 pt-14 sm:pt-20">
+      <div className="hero-glow pointer-events-none absolute inset-0" aria-hidden="true" />
+      <div className="bg-grid pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]" aria-hidden="true" />
+      <Container className="relative">
+        {image ? (
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div className="animate-fade-up">{copy}</div>
+            <div className="animate-fade-up relative">
+              <div className="relative overflow-hidden rounded-[2rem] shadow-2xl ring-1 ring-foreground/10">
+                <Image
+                  src={image.src}
+                  alt={image.alt || ""}
+                  width={1200}
+                  height={900}
+                  className="aspect-[4/3] w-full object-cover"
+                  priority
+                />
+              </div>
+              {children ? (
+                <div className="absolute -bottom-6 -left-4 hidden sm:block lg:-left-8">{children}</div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="animate-fade-up mx-auto max-w-3xl text-center">
+            <div className="flex flex-col items-center">{copy}</div>
+            {children}
           </div>
         )}
-        {children}
       </Container>
     </Section>
   );
 }
 
-export function FeatureGrid({ eyebrow, title, description, features = [] }) {
+export function FeatureGrid({ eyebrow, title, description, features = [], variant = "grid" }) {
+  const bento = variant === "bento";
   return (
     <Section>
       <Container>
         <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((f) => (
-            <Card key={f.title} className="h-full">
-              <CardHeader>
-                {f.icon ? <f.icon className="mb-2 size-6 text-primary" aria-hidden="true" /> : null}
-                <CardTitle>{f.title}</CardTitle>
-                <CardDescription className="leading-6">{f.text}</CardDescription>
+        <div className={cn("mt-14 grid gap-4 sm:grid-cols-2", bento ? "lg:grid-cols-3" : "lg:grid-cols-3")}>
+          {features.map((f, i) => (
+            <Card
+              key={f.title}
+              className={cn(
+                "group h-full transition duration-300 hover:-translate-y-1 hover:shadow-xl",
+                bento && i === 0 ? "sm:col-span-2 lg:col-span-2" : ""
+              )}
+            >
+              <CardHeader className={bento && i === 0 ? "p-8" : ""}>
+                {f.icon ? (
+                  <span className="mb-4 grid size-11 place-items-center rounded-xl bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground">
+                    <f.icon className="size-5" aria-hidden="true" />
+                  </span>
+                ) : null}
+                <CardTitle className={cn("font-display", bento && i === 0 ? "text-2xl" : "")}>{f.title}</CardTitle>
+                <CardDescription className={cn("leading-6", bento && i === 0 ? "text-base leading-7" : "")}>{f.text}</CardDescription>
               </CardHeader>
             </Card>
           ))}
@@ -584,15 +659,64 @@ export function FeatureGrid({ eyebrow, title, description, features = [] }) {
   );
 }
 
+export function LogoCloud({ title, logos = [] }) {
+  if (!logos.length) return null;
+  return (
+    <section className="py-10 sm:py-12">
+      <Container>
+        {title ? (
+          <p className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+        ) : null}
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
+          {logos.map((name) => (
+            <span key={name} className="font-display text-xl font-semibold tracking-tight text-muted-foreground/60">
+              {name}
+            </span>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+export function GallerySection({ eyebrow, title, description, images = [] }) {
+  if (!images.length) return null;
+  return (
+    <Section>
+      <Container>
+        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {images.map((img) => (
+            <figure key={img.src} className="group relative overflow-hidden rounded-3xl ring-1 ring-foreground/10">
+              <Image
+                src={img.src}
+                alt={img.alt || ""}
+                width={900}
+                height={675}
+                className="aspect-[4/3] w-full object-cover transition duration-500 group-hover:scale-105"
+              />
+              {img.caption ? (
+                <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-5 pb-4 pt-12 text-sm font-medium text-white">
+                  {img.caption}
+                </figcaption>
+              ) : null}
+            </figure>
+          ))}
+        </div>
+      </Container>
+    </Section>
+  );
+}
+
 export function StatsSection({ stats = [] }) {
   return (
-    <Section className="border-y bg-muted/30 py-12 sm:py-14">
+    <Section className="border-y bg-muted/30 py-14 sm:py-16">
       <Container>
-        <dl className="grid gap-8 text-center sm:grid-cols-3">
+        <dl className="grid gap-10 text-center sm:grid-cols-3 sm:divide-x sm:divide-border">
           {stats.map((s) => (
-            <div key={s.label}>
-              <dt className="order-2 mt-1 block text-sm text-muted-foreground">{s.label}</dt>
-              <dd className="text-4xl font-bold tracking-tight">{s.value}</dd>
+            <div key={s.label} className="px-4">
+              <dd className="font-display text-5xl font-bold tracking-tight text-primary">{s.value}</dd>
+              <dt className="mt-2 text-sm font-medium">{s.label}</dt>
               {s.detail ? <dd className="mt-1 text-sm text-muted-foreground">{s.detail}</dd> : null}
             </div>
           ))}
@@ -607,15 +731,15 @@ export function StepsSection({ eyebrow, title, description, steps = [] }) {
     <Section>
       <Container>
         <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-        <ol className="mt-12 grid gap-4 md:grid-cols-3">
+        <ol className="mt-14 grid gap-4 md:grid-cols-3">
           {steps.map((s, i) => (
             <li key={s.title}>
-              <Card className="h-full">
+              <Card className="h-full transition duration-300 hover:-translate-y-1 hover:shadow-xl">
                 <CardHeader>
-                  <span className="mb-3 flex size-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                  <span className="font-display mb-4 grid size-11 place-items-center rounded-full bg-primary text-base font-bold text-primary-foreground ring-8 ring-primary/10">
                     {i + 1}
                   </span>
-                  <CardTitle>{s.title}</CardTitle>
+                  <CardTitle className="font-display">{s.title}</CardTitle>
                   <CardDescription className="leading-6">{s.text}</CardDescription>
                 </CardHeader>
               </Card>
@@ -632,19 +756,22 @@ export function TestimonialGrid({ eyebrow, title, description, testimonials = []
     <Section className="bg-muted/30">
       <Container>
         <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-        <div className="mt-12 grid gap-4 md:grid-cols-3">
+        <div className="mt-14 grid gap-4 md:grid-cols-3">
           {testimonials.map((t) => (
-            <Card key={t.name} className="h-full">
+            <Card key={t.name} className="h-full transition duration-300 hover:-translate-y-1 hover:shadow-xl">
               <CardContent className="flex h-full flex-col pt-6">
-                <div className="flex gap-0.5 text-primary" aria-label="5 out of 5 stars">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <Star key={i} className="size-4 fill-current" aria-hidden="true" />
-                  ))}
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-0.5 text-primary" aria-label="5 out of 5 stars">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Star key={i} className="size-4 fill-current" aria-hidden="true" />
+                    ))}
+                  </div>
+                  <Quote className="size-6 text-primary/20" aria-hidden="true" />
                 </div>
                 <blockquote className="mt-4 flex-1 text-pretty leading-7">“{t.quote}”</blockquote>
                 <div className="mt-6 flex items-center gap-3">
                   <Avatar>
-                    <AvatarFallback>
+                    <AvatarFallback className="bg-primary/10 font-semibold text-primary">
                       {t.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
                     </AvatarFallback>
                   </Avatar>
@@ -667,17 +794,26 @@ export function PricingSection({ eyebrow, title, description, plans = [] }) {
     <Section>
       <Container>
         <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-        <div className="mt-12 grid items-stretch gap-4 lg:grid-cols-3">
+        <div className="mt-14 grid items-stretch gap-4 lg:grid-cols-3">
           {plans.map((p) => (
-            <Card key={p.name} className={cn("flex h-full flex-col", p.featured && "border-primary shadow-md")}>
+            <Card
+              key={p.name}
+              className={cn(
+                "relative flex h-full flex-col overflow-hidden",
+                p.featured && "border-primary shadow-2xl ring-1 ring-primary/40 lg:-translate-y-3"
+              )}
+            >
+              {p.featured ? (
+                <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-primary/30 via-primary to-primary/30" aria-hidden="true" />
+              ) : null}
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle>{p.name}</CardTitle>
+                  <CardTitle className="font-display">{p.name}</CardTitle>
                   {p.featured ? <Badge>Most popular</Badge> : null}
                 </div>
                 <CardDescription>{p.description}</CardDescription>
                 <p className="pt-3">
-                  <span className="text-4xl font-bold tracking-tight">{p.price}</span>
+                  <span className="font-display text-5xl font-bold tracking-tight">{p.price}</span>
                   {p.period ? <span className="text-sm text-muted-foreground"> {p.period}</span> : null}
                 </p>
               </CardHeader>
@@ -692,7 +828,7 @@ export function PricingSection({ eyebrow, title, description, plans = [] }) {
                 </ul>
               </CardContent>
               <CardFooter>
-                <Button asChild className="w-full" variant={p.featured ? "default" : "outline"}>
+                <Button asChild className={cn("w-full rounded-full", p.featured && "shadow-lg shadow-primary/20")} variant={p.featured ? "default" : "outline"}>
                   <Link href={p.ctaHref || "#contact"}>{p.cta || "Get started"}</Link>
                 </Button>
               </CardFooter>
@@ -709,14 +845,16 @@ export function FaqSection({ eyebrow, title, description, faqs = [] }) {
     <Section>
       <Container className="max-w-3xl">
         <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-        <Accordion type="single" collapsible className="mt-10">
-          {faqs.map((f, i) => (
-            <AccordionItem key={f.q} value={"faq-" + i}>
-              <AccordionTrigger>{f.q}</AccordionTrigger>
-              <AccordionContent className="leading-7">{f.a}</AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+        <div className="mt-12 rounded-3xl border bg-card px-6 shadow-sm">
+          <Accordion type="single" collapsible>
+            {faqs.map((f, i) => (
+              <AccordionItem key={f.q} value={"faq-" + i} className={i === faqs.length - 1 ? "border-b-0" : ""}>
+                <AccordionTrigger className="text-left font-medium">{f.q}</AccordionTrigger>
+                <AccordionContent className="leading-7">{f.a}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
       </Container>
     </Section>
   );
@@ -726,19 +864,64 @@ export function CtaSection({ title, description, cta }) {
   return (
     <Section className="pt-0">
       <Container>
-        <div className="rounded-2xl bg-primary px-6 py-12 text-center text-primary-foreground sm:px-12">
-          <h2 className="mx-auto max-w-2xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
-          {description ? (
-            <p className="mx-auto mt-4 max-w-xl text-pretty leading-7 text-primary-foreground/80">{description}</p>
-          ) : null}
-          {cta ? (
-            <Button asChild size="lg" variant="secondary" className="mt-8">
-              <Link href={cta.href}>{cta.label} <ArrowRight /></Link>
-            </Button>
-          ) : null}
+        <div className="cta-gradient relative overflow-hidden rounded-[2rem] px-6 py-14 text-center shadow-2xl sm:px-12 sm:py-16">
+          <div className="pointer-events-none absolute -right-20 -top-20 size-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
+          <div className="pointer-events-none absolute -bottom-24 -left-16 size-72 rounded-full bg-black/10 blur-3xl" aria-hidden="true" />
+          <div className="relative">
+            <h2 className="font-display mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight sm:text-5xl">{title}</h2>
+            {description ? (
+              <p className="mx-auto mt-5 max-w-xl text-pretty leading-7 opacity-85">{description}</p>
+            ) : null}
+            {cta ? (
+              <Button asChild size="lg" variant="secondary" className="mt-9 rounded-full px-7 shadow-lg">
+                <Link href={cta.href}>{cta.label} <ArrowRight /></Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
       </Container>
     </Section>
+  );
+}
+`,
+  "components/sections/reveal.jsx": `"use client";
+
+import { useLayoutEffect, useRef } from "react";
+
+/**
+ * Scroll-reveal wrapper: content fades/slides in when it enters the
+ * viewport. Progressive enhancement — if JavaScript never runs, the
+ * content simply stays visible (the hidden state is applied by the
+ * effect itself, never in the initial render).
+ */
+export function Reveal({ children, className, delay = 0 }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.style.opacity = "0";
+    el.style.transform = "translateY(18px)";
+    el.style.transition = "opacity 0.7s ease " + delay + "ms, transform 0.7s ease " + delay + "ms";
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            el.style.opacity = "1";
+            el.style.transform = "none";
+            io.disconnect();
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [delay]);
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
   );
 }
 `,
@@ -825,7 +1008,7 @@ export function PageIntro({ eyebrow, title, description }) {
         {eyebrow ? (
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-primary">{eyebrow}</p>
         ) : null}
-        <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-5xl">{title}</h1>
+        <h1 className="font-display max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-5xl">{title}</h1>
         {description ? (
           <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted-foreground">{description}</p>
         ) : null}
@@ -1102,13 +1285,14 @@ export default nextConfig;
       null,
       2
     ),
-    "app/layout.jsx": `import { Inter } from "next/font/google";
+    "app/layout.jsx": `import { Inter, Sora } from "next/font/google";
 import "./globals.css";
 import { siteData } from "@/lib/site-data";
 import { SiteHeader } from "@/components/sections/site-header";
 import { SiteFooter } from "@/components/sections/site-shell";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const sora = Sora({ subsets: ["latin"], variable: "--font-sora" });
 
 // Guarded: if site-data loses its url, metadata must degrade — never crash
 // the production build with new URL(undefined) (this exact crash killed a
@@ -1148,7 +1332,7 @@ export default function RootLayout({ children }) {
   };
   return (
     <html lang="en">
-      <body className={inter.variable + " antialiased"} style={themeStyle}>
+      <body className={inter.variable + " " + sora.variable + " antialiased"} style={themeStyle}>
         <a
           href="#content"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
@@ -1273,16 +1457,47 @@ export default function RootLayout({ children }) {
     }
   }
 }
+
+@theme inline {
+  --font-display: var(--font-sora), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --animate-fade-up: fade-up 0.7s ease-out both;
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background-image: linear-gradient(96deg, var(--primary) 5%, color-mix(in oklch, var(--primary) 55%, white) 55%, var(--primary) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-grid {
+    background-image: linear-gradient(to right, color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .hero-glow {
+    background: radial-gradient(56rem 30rem at 50% -10%, color-mix(in oklch, var(--primary) 15%, transparent), transparent 70%);
+  }
+  .cta-gradient {
+    background-image: linear-gradient(130deg, color-mix(in oklch, var(--primary) 82%, black) 0%, var(--primary) 48%, color-mix(in oklch, var(--primary) 76%, white) 105%);
+    color: var(--primary-foreground);
+  }
+}
 `,
     "app/page.jsx": `import { Compass, PenTool, Rocket, SearchCheck } from "lucide-react";
 import {
   CtaSection,
   FaqSection,
   FeatureGrid,
+  GallerySection,
   HeroSection,
   StatsSection,
   StepsSection,
 } from "@/components/sections/marketing";
+import { Reveal } from "@/components/sections/reveal";
 import { ContactSection } from "@/components/sections/contact";
 import { siteData } from "@/lib/site-data";
 
@@ -1290,12 +1505,12 @@ const features = [
   {
     icon: Compass,
     title: "Strategy before pixels",
-    text: "Every page starts from the visitor's goal: one clear offer, one primary action, no filler sections.",
+    text: "Every page starts from the visitor's goal: one clear offer, one primary action, no filler sections. The layout, copy and call to action all serve that single goal, so visitors always know what to do next.",
   },
   {
     icon: PenTool,
     title: "A real design system",
-    text: "Pages are composed from a preinstalled component and section library — consistent spacing, type and states everywhere.",
+    text: "Pages are composed from a preinstalled component and section library — display typography, gradient accents, consistent spacing and states everywhere.",
   },
   {
     icon: SearchCheck,
@@ -1306,6 +1521,24 @@ const features = [
     icon: Rocket,
     title: "Verified before it ships",
     text: "The agent builds the production bundle, audits the result and fixes issues before showing you a preview.",
+  },
+];
+
+const gallery = [
+  {
+    src: "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=1200&q=80",
+    alt: "A bright modern workspace with desks and natural light",
+    caption: "Designed to feel open and calm",
+  },
+  {
+    src: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1200&q=80",
+    alt: "A small team collaborating around a table",
+    caption: "Built with the people who use it",
+  },
+  {
+    src: "https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=1200&q=80",
+    alt: "Hands typing on a laptop beside a notebook",
+    caption: "Details finished by hand",
   },
 ];
 
@@ -1339,14 +1572,21 @@ export default function HomePage() {
         description={siteData.tagline + ". This starter is composed from the senior section library — ask the agent to replace it with real pages for your business."}
         primaryCta={siteData.primaryCta}
         secondaryCta={{ label: "See how it works", href: "/#process" }}
+        image={{
+          src: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1600&q=80",
+          alt: "A modern, light-filled workspace",
+        }}
       />
       <div id="services">
-        <FeatureGrid
-          eyebrow="Why it is built this way"
-          title="Senior habits, baked into the scaffold"
-          description="Not a blank canvas — an opinionated starting point that already handles the things junior sites forget."
-          features={features}
-        />
+        <Reveal>
+          <FeatureGrid
+            variant="bento"
+            eyebrow="Why it is built this way"
+            title="Senior habits, baked into the scaffold"
+            description="Not a blank canvas — an opinionated starting point that already handles the things junior sites forget."
+            features={features}
+          />
+        </Reveal>
       </div>
       <StatsSection
         stats={[
@@ -1355,6 +1595,14 @@ export default function HomePage() {
           { value: "0", label: "Lorem ipsum", detail: "Real copy from the first draft" },
         ]}
       />
+      <Reveal>
+        <GallerySection
+          eyebrow="The feel"
+          title="Modern, warm, and unmistakably yours"
+          description="Real photography, generous spacing and a single brand accent — the difference between a template and a presence."
+          images={gallery}
+        />
+      </Reveal>
       <div id="process">
         <StepsSection
           eyebrow="Process"
@@ -1374,7 +1622,8 @@ export default function HomePage() {
       <ContactSection />
     </>
   );
-}`,
+}
+`,
     "app/robots.js": `import { siteData } from "@/lib/site-data";
 
 const rawBase = siteData.url || "";

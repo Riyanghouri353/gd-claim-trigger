@@ -58,6 +58,7 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
 
   let rawButtons = 0;
   let rawInputs = 0;
+  let rawImgs = 0;
   let inlineSvgs = 0;
   let hashLinks = 0;
   let blankNoRel = 0;
@@ -65,18 +66,27 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
   let responsiveHits = 0;
   let sectionImports = 0;
   let clientFiles = 0;
+  const homeSections = new Set<string>();
+  let homeHasImage = false;
 
   for (const f of custom) {
     const c = f.content;
     const isPage = f.path.endsWith("page.jsx");
     rawButtons += count(c, /<button[\s>]/g);
     rawInputs += count(c, /<(input|textarea|select)[\s>]/g);
+    rawImgs += count(c, /<img[\s>]/g);
     inlineSvgs += count(c, /<svg[\s>]/g);
     hashLinks += count(c, /href=["']#["']/g);
     imgNoAlt += count(c, /<img(?![^>]*\balt=)/g);
     responsiveHits += count(c, /\b(sm|md|lg|xl):/g);
     if (c.includes("@/components/sections/")) sectionImports++;
     if (c.includes('"use client"')) clientFiles++;
+    if (f.path === "app/page.jsx") {
+      const sectionRe = /(HeroSection|FeatureGrid|StatsSection|StepsSection|TestimonialGrid|PricingSection|FaqSection|CtaSection|GallerySection|LogoCloud|ContactSection)/g;
+      let sm: RegExpExecArray | null;
+      while ((sm = sectionRe.exec(c)) !== null) homeSections.add(sm[1]);
+      homeHasImage = /next\/image|image=\{|<img/.test(c);
+    }
 
     if (/lorem ipsum/i.test(c)) {
       add({ severity: "error", category: "copy", file: f.path, message: "Lorem ipsum placeholder copy is still on the page.", fix: "Write real, specific copy for this business — a senior site never ships filler text." });
@@ -134,6 +144,22 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
   if (imgNoAlt > 0) {
     add({ severity: "warning", category: "accessibility", message: `${imgNoAlt} <img> tag(s) without alt text.`, fix: "Prefer next/image and always write meaningful alt text (or alt=\"\" for decoration)." });
   }
+  if (rawImgs > 0) {
+    add({ severity: "warning", category: "ui", message: `${rawImgs} raw <img> tag(s) in custom code.`, fix: "Use next/image (already configured for Unsplash/Pexels) — it optimizes, lazy-loads and prevents layout shift." });
+  }
+  // Design standard (v4): professional pages open with a hero, carry
+  // imagery, and compose several section types — not a wall of text.
+  if (pages.length > 0 && homeSections.size > 0) {
+    if (!homeSections.has("HeroSection")) {
+      add({ severity: "warning", category: "design", file: "app/page.jsx", message: "Home page opens without a HeroSection.", fix: "Open with HeroSection — ideally with an image (or the glow variant) and a gradient accent word in the h1." });
+    }
+    if (!homeHasImage) {
+      add({ severity: "info", category: "design", file: "app/page.jsx", message: "Home page is text-only — no imagery anywhere.", fix: "Add photography: HeroSection image and/or GallerySection with Unsplash/Pexels URLs and real alt text." });
+    }
+    if (homeSections.size < 4) {
+      add({ severity: "info", category: "design", file: "app/page.jsx", message: `Home page composes only ${homeSections.size} section type(s) — it will feel thin.`, fix: "Compose 4+ section types (hero, bento features, stats/steps, gallery, pricing/FAQ, CTA) for a professional rhythm." });
+    }
+  }
   if (pages.length > 0 && responsiveHits === 0) {
     add({ severity: "warning", category: "responsive", message: "No responsive (sm:/md:/lg:) classes anywhere in custom code.", fix: "Design mobile-first and verify each breakpoint — sections from the library already handle most of this." });
   }
@@ -169,6 +195,8 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
   if (siteData && !/Rewrite this/.test(siteData)) strengths.push("Site data (brand + SEO) is customized");
   if (responsiveHits >= 10) strengths.push("Responsive classes used throughout");
   if (pages.length > 1) strengths.push(`${pages.length} routes with a shared layout (header/footer/SEO)`);
+  if (homeHasImage) strengths.push("Imagery-led design (hero/gallery photography)");
+  if (homeSections.size >= 5) strengths.push(`Rich section composition (${homeSections.size} section types on the home page)`);
 
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity === "warning").length;
@@ -193,11 +221,13 @@ export async function auditSiteQuality(idOrSlug: string): Promise<SiteQualityRep
       infos,
       rawButtons,
       rawInputs,
+      rawImgs,
       inlineSvgs,
       hashLinks,
       imagesMissingAlt: imgNoAlt,
       responsiveClasses: responsiveHits,
       sectionLibraryFiles: sectionImports,
+      designSections: homeSections.size,
       clientComponents: clientFiles,
     },
     strengths,
