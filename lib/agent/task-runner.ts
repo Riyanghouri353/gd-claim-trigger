@@ -19,6 +19,7 @@ import { listConnectors, callConnector } from "./connectors";
 import { listMemories, addMemory } from "./memory";
 import { searchKnowledge, getKbStats } from "./knowledge";
 import { runLoadTest, saveLoadTest } from "./loadtest";
+import { getCryptoBriefing } from "./news";
 import { fetchPublicText } from "./web";
 import { createAgentFile } from "./files";
 import { getE2BKey, runCode } from "./e2b";
@@ -205,6 +206,32 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
           };
         } catch (e: any) {
           return { ok: false, error: e?.message || "Load test failed" };
+        }
+      },
+    }),
+    crypto_briefing: tool({
+      description:
+        "Get today's crypto news briefing (Asia/Karachi) from live RSS feeds, server-side fetched, date-filtered, deduplicated and ranked. Returns a READY evidence-only briefing plus story records. Use for crypto news tasks (e.g. a daily briefing). STRICT: report the briefing as returned — never add prices, figures, events or sentiment that are not in it; keep each story's publisher and link; this is news only, live prices are not checked.",
+      inputSchema: z.object({ limit: z.number().optional().default(5) }),
+      execute: async ({ limit }) => {
+        try {
+          const { evidence, briefing } = await getCryptoBriefing({ limit: Math.min(limit || 5, 7) });
+          return {
+            ok: true,
+            briefing,
+            window: evidence.window,
+            sourcesOk: evidence.sourcesOk,
+            sourcesFailed: evidence.sourcesFailed,
+            stories: evidence.stories.map((s) => ({
+              title: s.title,
+              source: s.source,
+              url: s.url,
+              kind: s.kind,
+              verification: s.verificationStatus,
+            })),
+          };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Briefing failed" };
         }
       },
     }),
