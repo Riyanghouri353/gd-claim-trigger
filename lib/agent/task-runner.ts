@@ -18,6 +18,7 @@ import {
 import { listConnectors, callConnector } from "./connectors";
 import { listMemories, addMemory } from "./memory";
 import { searchKnowledge, getKbStats } from "./knowledge";
+import { runLoadTest, saveLoadTest } from "./loadtest";
 import { fetchPublicText } from "./web";
 import { createAgentFile } from "./files";
 import { getE2BKey, runCode } from "./e2b";
@@ -171,6 +172,40 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
           found: hits.length,
           hits: hits.map((h) => ({ document: h.document_title, excerpt: h.content.slice(0, 900) })),
         };
+      },
+    }),
+    load_test: tool({
+      description:
+        "Load-test a website with controlled traffic (burst or sustained) and report stability: total/succeeded/failed, error rate, latency p50/p95/p99/max, actual req/s, status breakdown, verdict stable/strained/overloaded. GET-only; capped at 10,000 requests / 1000 req/s / 60s per test. ONLY test sites Riyan owns or has explicit permission to test — his own sites run freely; for any other host, do not run without confirmed ownership/permission (set ownerConfirmed only when the task instructions confirm it).",
+      inputSchema: z.object({
+        url: z.string(),
+        mode: z.enum(["burst", "sustained"]).optional().default("burst"),
+        requests: z.number().optional(),
+        rps: z.number().optional(),
+        durationSec: z.number().optional(),
+        concurrency: z.number().optional(),
+        ownerConfirmed: z.boolean().optional(),
+      }),
+      execute: async ({ url, mode, requests, rps, durationSec, concurrency, ownerConfirmed }) => {
+        try {
+          const result = await runLoadTest({ url, mode, requests, rps, durationSec, concurrency, ownerConfirmed });
+          await saveLoadTest(result).catch(() => {});
+          return {
+            ok: true,
+            verdict: result.verdict,
+            verdictNote: result.verdictNote,
+            total: result.total,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            errorRatePct: result.errorRate,
+            latencyMs: result.latencyMs,
+            actualRps: result.actualRps,
+            statusCounts: result.statusCounts,
+            errors: result.errors,
+          };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Load test failed" };
+        }
       },
     }),
     create_file: tool({

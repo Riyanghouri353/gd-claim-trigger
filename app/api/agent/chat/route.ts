@@ -25,6 +25,7 @@ import {
   listDeepTasks,
   runDeepTask,
 } from "@/lib/agent/deep-tasks";
+import { runLoadTest, saveLoadTest } from "@/lib/agent/loadtest";
 import { fetchPublicText } from "@/lib/agent/web";
 import { createAgentFile } from "@/lib/agent/files";
 import { getE2BKey, runCode } from "@/lib/agent/e2b";
@@ -263,6 +264,15 @@ export async function POST(req: Request) {
     "The job runs in the background (up to 20 minutes, 40 steps) and posts its full report back into this conversation, " +
     "so the user can keep chatting or leave and come back. Use deep_task_status when they ask how it is going, " +
     "and list_deep_tasks to show recent ones. Never start a deep task for a quick question that fits in one reply.";
+
+  // Load testing: controlled traffic, only with permission.
+  systemPrompt +=
+    "\n\nLoad testing: when the user asks whether a site can handle traffic, survives a spike, or stays stable under load, " +
+    "use load_test (burst for spikes like 1000 requests, sustained for req/s over time). It is GET-only and capped " +
+    "(10,000 requests / 1000 req/s / 60s per test). Only test sites Riyan owns or has explicit permission to test — " +
+    "his own sites run freely; for any other host, ask him to confirm ownership/permission first and never run it " +
+    "without that confirmation. For long campaigns, run the test as a deep task instead. Results are also saved to " +
+    "the Load tests page (sidebar gauge icon).";
 
   const e2bKey = await getE2BKey().catch(() => null);
 
@@ -728,6 +738,42 @@ export async function POST(req: Request) {
             ok: true,
             tasks: tasks.map((t) => ({ id: t.id, goal: t.goal, status: t.status, created: t.created_at, finished: t.finished_at })),
           };
+        },
+      }),
+      load_test: tool({
+        description:
+          "Load-test a website: fire controlled traffic at it and report whether it stays stable. Modes: burst (N requests as fast as possible — e.g. 1000 requests to see if it survives a spike) or sustained (R requests/second for S seconds). Returns total/succeeded/failed, error rate, latency p50/p95/p99/max, actual req/s achieved, status-code breakdown, and a verdict: stable / strained / overloaded. GET requests only — nothing on the target is changed. SAFETY: only test sites Riyan owns or has explicit permission to test. His own sites (agent-built sites, *.veritask.site, *.ghouri.site) run freely; for any other host, ask him to confirm ownership/permission FIRST and only then call with ownerConfirmed=true. Never use this to harm or disrupt a site. For tests longer than ~60s, run them as a deep task instead (the executor has this tool too).",
+        inputSchema: z.object({
+          url: z.string().describe("Full http(s) URL to test"),
+          mode: z.enum(["burst", "sustained"]).optional().default("burst"),
+          requests: z.number().optional().describe("Burst: total requests (default 1000, max 10000)"),
+          rps: z.number().optional().describe("Sustained: target requests per second (default 100, max 1000)"),
+          durationSec: z.number().optional().describe("Sustained: seconds to run (default 10, max 60)"),
+          concurrency: z.number().optional().describe("Max requests in flight (default 200, max 500)"),
+          ownerConfirmed: z.boolean().optional().describe("True only after the user confirmed ownership/permission for a non-own host"),
+        }),
+        execute: async ({ url, mode, requests, rps, durationSec, concurrency, ownerConfirmed }) => {
+          try {
+            const result = await runLoadTest({ url, mode, requests, rps, durationSec, concurrency, ownerConfirmed });
+            await saveLoadTest(result).catch(() => {});
+            return {
+              ok: true,
+              verdict: result.verdict,
+              verdictNote: result.verdictNote,
+              total: result.total,
+              succeeded: result.succeeded,
+              failed: result.failed,
+              errorRatePct: result.errorRate,
+              latencyMs: result.latencyMs,
+              actualRps: result.actualRps,
+              durationMs: result.durationMs,
+              statusCounts: result.statusCounts,
+              errors: result.errors,
+              note: "Full result saved to Load tests history.",
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || "Load test failed" };
+          }
         },
       }),
       ...(e2bKey
