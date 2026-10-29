@@ -7,6 +7,7 @@ import {
   RankedStory,
   classifyFeedError,
   dedupeArticles,
+  extractArticleEvidence,
   formatBriefing,
   formatDateLine,
   parseFeedXml,
@@ -96,15 +97,19 @@ export async function getCryptoBriefing(opts?: {
   const ranked = rankStories(sel.stories, now);
   const top: RankedStory[] = ranked.slice(0, limit);
 
-  // Article verification for the top stories: evidence grows only when the
-  // article actually opens and yields text.
+  // Article verification for the top stories: the story is upgraded only
+  // when a substantive paragraph matching the headline is extracted from
+  // the article — page chrome and price tickers never count as evidence.
   for (let i = 0; i < Math.min(verifyTop, top.length); i++) {
     const story = top[i];
     try {
-      const page = await fetchPublicText(story.url, 700);
-      if (page.ok && page.text.trim().length > 200) {
-        story.verificationStatus = "article_checked";
-        story.evidenceExcerpt = page.text.trim().slice(0, 650);
+      const page = await fetchPublicText(story.url, 12000);
+      if (page.ok) {
+        const excerpt = extractArticleEvidence(page.text, story.title);
+        if (excerpt) {
+          story.verificationStatus = "article_checked";
+          story.evidenceExcerpt = excerpt;
+        }
       }
     } catch {
       /* stays headline_only — labeled in the output */

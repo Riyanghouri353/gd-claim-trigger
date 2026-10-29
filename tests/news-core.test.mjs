@@ -17,6 +17,7 @@ import {
   classifyFeedError,
   findUnsupportedNumbers,
   formatBriefing,
+  extractArticleEvidence,
 } from "./news-core.js";
 
 const RETRIEVED = "2025-10-30T05:00:00.000Z";
@@ -171,6 +172,29 @@ test("ranking: regulation/ETF news outranks opinion and sponsored content", () =
   assert.equal(ranked[0].title.includes("SEC approves"), true);
   assert.equal(ranked[ranked.length - 1].kind, "sponsored");
   assert.equal(classifyKind("Opinion: the market is doomed", ""), "opinion");
+});
+
+test("article evidence extraction: page chrome and price tickers are rejected", () => {
+  // Shape captured from a real publisher page: nav + live ticker first,
+  // the actual article paragraph later.
+  const page = [
+    "Coinbase Files for Brazil Crypto License Ahead of Deadline",
+    "Ecosystem English News Markets Features Research Opinion Podcasts",
+    "DOGE $0.07899 0.35% TRX $0.3315 0.05% LINK $11.63 0.27% BTC $80,100.59 0.79% ETH $2,322.35 0.73%",
+    "Search Type / Install App Light Mode Search Open menu News Coins Predictions Learn Reviews",
+    "Coinbase has filed for a crypto license in Brazil ahead of the regulatory deadline, the exchange confirmed on Thursday, adding that it expects no disruption to its services while the application is reviewed by the central bank.",
+  ].join("\n");
+  const ex = extractArticleEvidence(page, "Coinbase seeks Brazil crypto license, expects no service disruption");
+  assert.ok(ex, "expected an excerpt");
+  assert.match(ex, /filed for a crypto license in Brazil/);
+  assert.ok(!ex.includes("$80,100"), "ticker price must never become evidence");
+  assert.ok(!ex.includes("Install App"));
+});
+
+test("article evidence extraction: chrome-only page yields null (story stays headline-only)", () => {
+  const page = "Home News Markets Features\nBTC $80,100.59 0.79% ETH $2,322.35 0.73%\nSearch Open menu Directory Browse Companies Products People";
+  assert.equal(extractArticleEvidence(page, "Coinbase seeks Brazil crypto license"), null);
+  assert.equal(extractArticleEvidence("", "Anything"), null);
 });
 
 test("briefing format: date line, source + link per story, no invented figures", () => {

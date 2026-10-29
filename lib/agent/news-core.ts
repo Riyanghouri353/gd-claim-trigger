@@ -424,6 +424,43 @@ export function findUnsupportedNumbers(candidate: string, evidenceTexts: string[
   return bad;
 }
 
+/* ---------------- article evidence extraction ---------------- */
+
+/**
+ * Extract the article's substantive text from a fetched page's plain text.
+ * Pages arrive as chrome first (nav, tickers, menus): short lines and
+ * price-ticker lines are rejected, and the winning paragraph must share
+ * content words with the headline. Returns null when nothing substantive
+ * is found — the story then stays headline_only, never upgraded on junk.
+ * In particular, live price tickers from page headers must never become
+ * "evidence": prices require a market-data source, not page chrome.
+ */
+export function extractArticleEvidence(pageText: string, title: string, maxChars = 650): string | null {
+  if (!pageText) return null;
+  const titleWords = new Set(
+    title.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3)
+  );
+  const chunks = pageText
+    .split(/\n+/)
+    .map((c) => c.replace(/\s+/g, " ").trim())
+    .filter((c) => c.length >= 80);
+  let best: string | null = null;
+  let bestScore = -1;
+  for (const chunk of chunks) {
+    const amounts = (chunk.match(/\$\d[\d,]*(\.\d+)?/g) ?? []).length;
+    if (amounts >= 2) continue; // price ticker / price table chrome
+    const words = chunk.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/);
+    const overlap = words.filter((w) => titleWords.has(w)).length;
+    const score = overlap * 10 + Math.min(chunk.length, 400) / 40;
+    if (score > bestScore) {
+      bestScore = score;
+      best = chunk;
+    }
+  }
+  if (!best || bestScore < 10) return null; // no headline overlap at all → not evidence
+  return best.length > maxChars ? best.slice(0, maxChars - 1).trimEnd() + "…" : best;
+}
+
 /* ---------------- feed error classification ---------------- */
 
 export function classifyFeedError(status?: number, err?: unknown): string {
