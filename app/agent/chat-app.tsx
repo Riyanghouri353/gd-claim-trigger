@@ -68,6 +68,8 @@ interface Conversation {
   id: string;
   title: string;
   created_at: string;
+  site_slug?: string | null;
+  site_name?: string | null;
 }
 
 function toolLabel(part: any): string {
@@ -389,7 +391,7 @@ export default function ChatApp() {
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const cidRef = useRef<string | null>(null);
-  const [, forceRender] = useState(0);
+  const [renderTick, forceRender] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   // Site preview popup (header Preview button): url only ever comes from
   // the preview API in this session, so a stale link from chat history can
@@ -411,12 +413,26 @@ export default function ChatApp() {
 
   const { messages, sendMessage, status, error, regenerate, setMessages } = useChat({
     transport: transportRef.current,
+    // Keep the sidebar (and the stored site link) fresh after every turn.
+    onFinish: () => {
+      void refreshList();
+    },
   });
 
   const busy = status === "submitted" || status === "streaming";
 
-  /** The site generated/edited in this conversation, if any. */
-  const chatSite = useMemo(() => detectChatSite(messages as any[]), [messages]);
+  /**
+   * The site this chat is about: live tool parts win; after a reload the
+   * history is text-only, so fall back to the site link the server stored
+   * on the conversation when the agent built the site.
+   */
+  const liveSite = useMemo(() => detectChatSite(messages as any[]), [messages]);
+  const storedSite = useMemo<ChatSite | null>(() => {
+    const c = conversations.find((x) => x.id === cidRef.current);
+    return c?.site_slug ? { slug: c.site_slug, name: c.site_name || undefined } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, renderTick]);
+  const chatSite = liveSite ?? storedSite;
 
   /** Start (or reuse) the free E2B sandbox preview for the chat's site. */
   async function startPreview(force = false) {

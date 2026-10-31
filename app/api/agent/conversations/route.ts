@@ -12,7 +12,7 @@ export async function GET() {
   }
   const { data, error } = await getServiceClient()
     .from("conversations")
-    .select("id,title,created_at")
+    .select("id,title,created_at,site_slug,site_name")
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) return NextResponse.json({ error: "Database error" }, { status: 500 });

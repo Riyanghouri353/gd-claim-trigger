@@ -98,9 +98,9 @@ export type Database = {
         Relationships: [];
       };
       conversations: {
-        Row: { id: string; title: string | null; created_at: string; updated_at: string };
+        Row: { id: string; title: string | null; created_at: string; updated_at: string; site_slug: string | null; site_name: string | null };
         Insert: { title?: string | null };
-        Update: { title?: string | null; updated_at?: string };
+        Update: { title?: string | null; updated_at?: string; site_slug?: string | null; site_name?: string | null };
         Relationships: [];
       };
       memories: {
