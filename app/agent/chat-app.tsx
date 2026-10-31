@@ -19,6 +19,8 @@ import {
   Cloud,
   Code2,
   Database,
+  ExternalLink,
+  Eye,
   Globe,
   Gauge,
   AlarmClock,
@@ -31,6 +33,7 @@ import {
   MessageSquare,
   Monitor,
   Paperclip,
+  RefreshCw,
   RotateCcw,
   Search,
   Server,
@@ -332,6 +335,50 @@ const SUGGESTIONS = [
   { icon: Brain, label: "What do you remember about me?", prompt: "What do you remember about me from past conversations?" },
 ];
 
+/** A website touched in this conversation, found by scanning tool parts. */
+interface ChatSite {
+  slug: string;
+  name?: string;
+}
+
+const SITE_TOOLS = new Set([
+  "create_site",
+  "write_site_file",
+  "audit_site_quality",
+  "preview_site",
+  "deploy_site",
+  "run_site_test",
+  "list_site_submissions",
+]);
+
+/**
+ * The site this chat is about: the LAST site the agent created or edited in
+ * the message history. Drives the header Preview button — it appears as
+ * soon as the agent generates a site, no deploy needed.
+ */
+function detectChatSite(messages: any[]): ChatSite | null {
+  let found: ChatSite | null = null;
+  for (const m of messages || []) {
+    if (m?.role !== "assistant") continue;
+    for (const part of (m.parts || []) as any[]) {
+      if (!part || typeof part.type !== "string" || !part.type.includes("tool")) continue;
+      if (part.state !== "output-available") continue;
+      const name = toolLabel(part);
+      if (!SITE_TOOLS.has(name)) continue;
+      const out: any = part.output || {};
+      if (out.ok === false) continue;
+      const slug = out.site || out.slug || part.input?.site;
+      if (!slug || typeof slug !== "string") continue;
+      const prevName: string | undefined = (found as ChatSite | null)?.name;
+      found = {
+        slug,
+        name: name === "create_site" ? out.name || prevName : prevName,
+      };
+    }
+  }
+  return found;
+}
+
 export default function ChatApp() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -344,6 +391,15 @@ export default function ChatApp() {
   const cidRef = useRef<string | null>(null);
   const [, forceRender] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Site preview popup (header Preview button): url only ever comes from
+  // the preview API in this session, so a stale link from chat history can
+  // never be shown — the API is the source of truth for liveness.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [pvUrl, setPvUrl] = useState<string | null>(null);
+  const [pvUrlAt, setPvUrlAt] = useState(0);
+  const [pvLoading, setPvLoading] = useState(false);
+  const [pvError, setPvError] = useState<string | null>(null);
+  const [pvLog, setPvLog] = useState<string | null>(null);
 
   const transportRef = useRef<DefaultChatTransport<UIMessage> | null>(null);
   if (!transportRef.current) {
@@ -358,6 +414,66 @@ export default function ChatApp() {
   });
 
   const busy = status === "submitted" || status === "streaming";
+
+  /** The site generated/edited in this conversation, if any. */
+  const chatSite = useMemo(() => detectChatSite(messages as any[]), [messages]);
+
+  /** Start (or reuse) the free E2B sandbox preview for the chat's site. */
+  async function startPreview(force = false) {
+    if (!chatSite || pvLoading) return;
+    setPvError(null);
+    setPvLog(null);
+    if (!force && pvUrl && Date.now() - pvUrlAt < 9 * 60_000) return;
+    setPvLoading(true);
+    try {
+      if (!force) {
+        // Reuse a preview the agent (or an earlier click) already started.
+        const g = await fetch(`/api/agent/sites/${encodeURIComponent(chatSite.slug)}/preview`);
+        if (g.ok) {
+          const j = await g.json().catch(() => ({}));
+          if (j?.preview?.url) {
+            setPvUrl(j.preview.url);
+            setPvUrlAt(Date.now());
+            setPvLoading(false);
+            return;
+          }
+        }
+      }
+      const res = await fetch(`/api/agent/sites/${encodeURIComponent(chatSite.slug)}/preview`, {
+        method: "POST",
+      });
+      const j = await res.json().catch(() => ({}));
+      if (j?.ok && j?.url) {
+        setPvUrl(j.url);
+        setPvUrlAt(Date.now());
+      } else {
+        setPvUrl(null);
+        setPvError(
+          j?.error ||
+            "The site build failed in the sandbox. Ask the agent to fix the build errors, then rebuild the preview."
+        );
+        if (j?.buildLog) setPvLog(String(j.buildLog).slice(-1800));
+      }
+    } catch {
+      setPvError("Could not reach the preview service. Check your connection and try again.");
+    }
+    setPvLoading(false);
+  }
+
+  function openPreview() {
+    setPreviewOpen(true);
+    void startPreview(false);
+  }
+
+  // Escape closes the preview popup.
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewOpen]);
 
   async function refreshList() {
     const res = await fetch("/api/agent/conversations");
@@ -377,6 +493,12 @@ export default function ChatApp() {
 
   function setConversation(id: string | null) {
     cidRef.current = id;
+    // A different chat means a different site — never carry a preview over.
+    setPreviewOpen(false);
+    setPvUrl(null);
+    setPvUrlAt(0);
+    setPvError(null);
+    setPvLog(null);
     forceRender((n) => n + 1);
   }
 
@@ -693,15 +815,41 @@ export default function ChatApp() {
 
       {/* Chat */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <div className="flex shrink-0 items-center gap-2 border-b px-2 py-2 md:hidden">
-          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+        {/* Top bar — menu + brand on mobile, chat title on desktop, and the
+            site Preview button at the top-right once this chat has a site */}
+        <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+            className="md:hidden"
+          >
             <Menu className="size-5" />
           </Button>
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white md:hidden">
             <Sparkles className="size-3.5" />
           </div>
-          <span className="truncate text-sm font-semibold">Riyan Agent</span>
+          <span className="truncate text-sm font-semibold md:hidden">Riyan Agent</span>
+          <span className="hidden min-w-0 flex-1 truncate text-sm font-medium md:block">
+            {conversations.find((c) => c.id === activeId)?.title || "New chat"}
+          </span>
+          {chatSite && (
+            <Button
+              size="sm"
+              onClick={openPreview}
+              className="ml-auto shrink-0 rounded-full shadow-sm"
+              title={`Preview ${chatSite.name || chatSite.slug}`}
+            >
+              <Eye />
+              Preview
+              {chatSite.name && (
+                <span className="hidden max-w-44 truncate font-normal opacity-80 lg:inline">
+                  · {chatSite.name}
+                </span>
+              )}
+            </Button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -966,6 +1114,92 @@ export default function ChatApp() {
           </p>
         </div>
       </main>
+
+      {/* Full-screen site preview popup */}
+      {previewOpen && chatSite && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-background"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview of ${chatSite.name || chatSite.slug}`}
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#4f44d6] text-white">
+              <Globe className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">
+                {chatSite.name || chatSite.slug}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                Live preview in a free sandbox · expires ~10 minutes after each build
+              </p>
+            </div>
+            {pvUrl && (
+              <Button asChild variant="outline" size="sm" className="shrink-0 rounded-full">
+                <a href={pvUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink />
+                  <span className="hidden sm:inline">Open in new tab</span>
+                </a>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void startPreview(true)}
+              disabled={pvLoading}
+              className="shrink-0 rounded-full"
+              title="Rebuild the preview from the latest site files"
+            >
+              <RefreshCw className={pvLoading ? "animate-spin" : undefined} />
+              <span className="hidden sm:inline">Rebuild</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setPreviewOpen(false)}
+              aria-label="Close preview"
+              className="shrink-0"
+            >
+              <X className="size-5" />
+            </Button>
+          </div>
+          <div className="relative min-h-0 flex-1">
+            {pvLoading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <Loader2 className="size-8 animate-spin text-primary" />
+                <p className="text-sm font-medium">Building your preview in a free sandbox…</p>
+                <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                  The site is installed, built and smoke-tested before it is served — the
+                  first build usually takes about a minute.
+                </p>
+              </div>
+            ) : pvError ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <ShieldAlert className="size-8 text-destructive" />
+                <p className="max-w-md text-sm font-medium">{pvError}</p>
+                {pvLog && (
+                  <pre className="max-h-56 w-full max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded-xl bg-black/40 p-3 text-left text-[11px] leading-relaxed text-muted-foreground">
+                    {pvLog}
+                  </pre>
+                )}
+                <Button onClick={() => void startPreview(true)} className="rounded-full">
+                  <RefreshCw />
+                  Try again
+                </Button>
+              </div>
+            ) : pvUrl ? (
+              <iframe
+                key={pvUrl}
+                src={pvUrl}
+                title={`Preview of ${chatSite.name || chatSite.slug}`}
+                className="absolute inset-0 h-full w-full border-0 bg-white"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* Delete conversation confirmation */}
       <Dialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
