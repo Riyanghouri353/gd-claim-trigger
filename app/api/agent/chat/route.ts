@@ -1142,6 +1142,31 @@ export async function POST(req: Request) {
           // of the actual tool work so the conversation never looks dead.
           const finalText = text && text.trim() ? text : summarizeSteps(steps as any[], finishReason);
           await persistAssistantMessage(conversationId, finalText);
+          // Link the conversation to the site this turn created or edited.
+          // History persists text only, so this link is what lets the chat
+          // header offer its Preview button after a reload.
+          try {
+            let slug: string | null = null;
+            let siteName: string | undefined;
+            const SITE_TOOL_NAMES = ["create_site", "write_site_file", "audit_site_quality", "preview_site", "deploy_site", "run_site_test"];
+            for (const s of (steps as any[]) || []) {
+              for (const r of (s as any)?.toolResults || []) {
+                const nm = (r as any)?.toolName || "";
+                if (!SITE_TOOL_NAMES.includes(nm)) continue;
+                const out: any = (r as any)?.output ?? {};
+                if (out?.ok === false) continue;
+                if (typeof out?.site === "string") slug = out.site;
+                else if (typeof (r as any)?.input?.site === "string") slug = (r as any).input.site;
+                if (nm === "create_site" && typeof out?.name === "string") siteName = out.name;
+              }
+            }
+            if (slug) {
+              await getServiceClient()
+                .from("conversations")
+                .update(siteName ? { site_slug: slug, site_name: siteName } : { site_slug: slug })
+                .eq("id", conversationId);
+            }
+          } catch {}
         },
         onError: async ({ error }) => {
           // Mark the key's state for the NEXT request (can't swap mid-stream).
