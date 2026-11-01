@@ -588,6 +588,15 @@ function imgOf(image, imageAlt) {
   if (typeof image === "string") return { src: image, alt: imageAlt || "" };
   return { src: image.src || image.url, alt: image.alt || imageAlt || "" };
 }
+// Icons arrive as components (Lucide), as ready-made JSX elements, or as
+// string names. Components and elements render; strings are dropped —
+// rendering an element AS a component type crashes the build.
+function iconNode(icon) {
+  if (!icon || typeof icon === "string") return null;
+  if (typeof icon === "object" && icon.$$typeof === Symbol.for("react.element")) return icon;
+  const Icon = icon;
+  return <Icon className="size-5" aria-hidden="true" />;
+}
 
 export function HeroSection({ eyebrow, title, description, subtitle, primaryCta, secondaryCta, image, imageAlt, children }) {
   const desc = descOf(description, subtitle);
@@ -661,7 +670,7 @@ export function HeroSection({ eyebrow, title, description, subtitle, primaryCta,
 export function FeatureGrid({ eyebrow, title, description, subtitle, features, items, variant = "grid" }) {
   const bento = variant === "bento";
   const list = (features || items || []).map((f) => ({
-    icon: f.icon && typeof f.icon !== "string" ? f.icon : null,
+    icon: iconNode(f.icon),
     title: f.title || f.name || "",
     text: [f.text || f.description, f.muted].filter(Boolean).join(" "),
   }));
@@ -681,7 +690,7 @@ export function FeatureGrid({ eyebrow, title, description, subtitle, features, i
               <CardHeader className={bento && i === 0 ? "p-8" : ""}>
                 {f.icon ? (
                   <span className="mb-4 grid size-11 place-items-center rounded-xl bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground">
-                    <f.icon className="size-5" aria-hidden="true" />
+                    {f.icon}
                   </span>
                 ) : null}
                 <CardTitle className={cn("font-display", bento && i === 0 ? "text-2xl" : "")}>{f.title}</CardTitle>
@@ -922,8 +931,8 @@ export function FaqSection({ eyebrow, title, description, subtitle, faqs = [] })
   );
 }
 
-export function CtaSection({ title, description, subtitle, cta }) {
-  const action = ctaOf(cta);
+export function CtaSection({ title, description, subtitle, cta, primaryCta }) {
+  const action = ctaOf(cta || primaryCta);
   return (
     <Section className="pt-0">
       <Container>
@@ -1003,20 +1012,23 @@ const DEFAULT_FIELDS = [
 export function ContactSection({
   eyebrow = "Contact",
   title = "Contact us",
-  description = "Send a message and we will get back to you soon.",
+  description,
+  subtitle,
   form = "contact",
   fields = DEFAULT_FIELDS,
   submitLabel = "Send message",
 }) {
+  const desc = description || subtitle || "Send a message and we will get back to you soon.";
+  const contact = siteData.contact || {};
   const details = [
-    { icon: Mail, label: "Email", value: siteData.contact.email },
-    { icon: Phone, label: "Phone", value: siteData.contact.phone },
-    { icon: MapPin, label: "Location", value: siteData.contact.location },
+    { icon: Mail, label: "Email", value: contact.email },
+    { icon: Phone, label: "Phone", value: contact.phone },
+    { icon: MapPin, label: "Location", value: contact.location || contact.address },
   ].filter((d) => d.value);
   return (
     <Section id="contact">
       <Container>
-        <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+        <SectionHeading eyebrow={eyebrow} title={title} description={desc} />
         <div className="mx-auto mt-12 grid max-w-5xl gap-8 lg:grid-cols-[1fr_1.2fr]">
           <div className="space-y-5">
             {details.map((d) => (
