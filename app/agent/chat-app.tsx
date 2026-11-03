@@ -391,6 +391,7 @@ export default function ChatApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileAreaRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const cidRef = useRef<string | null>(null);
@@ -502,6 +503,20 @@ export default function ChatApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [profileMenuOpen]);
+
+  // Clicking anywhere outside the profile area closes the dropdown. A
+  // document listener is used instead of a backdrop element: the sidebar
+  // is transformed (drawer), which would trap a fixed backdrop inside it.
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (profileAreaRef.current && !profileAreaRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
   }, [profileMenuOpen]);
 
   async function refreshList() {
@@ -774,14 +789,9 @@ export default function ChatApp() {
         </div>
 
         {/* Footer — profile button opens the workspace dropdown menu */}
-        <div className="relative shrink-0 border-t border-sidebar-border p-2.5">
+        <div ref={profileAreaRef} className="relative shrink-0 border-t border-sidebar-border p-2.5">
           {profileMenuOpen && (
             <>
-              <div
-                className="fixed inset-0 z-40 cursor-default"
-                onClick={() => setProfileMenuOpen(false)}
-                aria-hidden="true"
-              />
               <div
                 role="menu"
                 aria-label="Workspace menu"
