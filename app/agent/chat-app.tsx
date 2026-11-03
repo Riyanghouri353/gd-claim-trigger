@@ -16,6 +16,7 @@ import {
   Box,
   Brain,
   ChevronDown,
+  ChevronsUpDown,
   Cloud,
   Code2,
   Database,
@@ -43,6 +44,7 @@ import {
   Smartphone,
   Sparkles,
   SquarePen,
+  Sun,
   Trash2,
   TrendingUp,
   Wallet,
@@ -388,6 +390,7 @@ export default function ChatApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const cidRef = useRef<string | null>(null);
@@ -491,6 +494,16 @@ export default function ChatApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [previewOpen]);
 
+  // Escape closes the profile dropdown.
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [profileMenuOpen]);
+
   async function refreshList() {
     const res = await fetch("/api/agent/conversations");
     if (res.ok) {
@@ -521,6 +534,7 @@ export default function ChatApp() {
   async function openConversation(id: string) {
     setConversation(id);
     setSidebarOpen(false);
+    setProfileMenuOpen(false);
     const res = await fetch(`/api/agent/conversations/${id}/messages`);
     if (res.ok) {
       const j = await res.json();
@@ -532,6 +546,7 @@ export default function ChatApp() {
     setConversation(null);
     setMessages([]);
     setSidebarOpen(false);
+    setProfileMenuOpen(false);
   }
 
   async function handleFilesSelected(list: FileList | null) {
@@ -758,9 +773,67 @@ export default function ChatApp() {
           ))}
         </div>
 
-        {/* Footer — profile row */}
-        <div className="shrink-0 border-t border-sidebar-border p-2.5">
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1">
+        {/* Footer — profile button opens the workspace dropdown menu */}
+        <div className="relative shrink-0 border-t border-sidebar-border p-2.5">
+          {profileMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setProfileMenuOpen(false)}
+                aria-hidden="true"
+              />
+              <div
+                role="menu"
+                aria-label="Workspace menu"
+                className="absolute inset-x-2.5 bottom-full z-50 mb-2 overflow-hidden rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
+              >
+                {[
+                  { icon: AlarmClock, label: "Scheduled tasks", href: "/agent/tasks" },
+                  { icon: Globe, label: "My websites", href: "/agent/sites" },
+                  { icon: BookOpen, label: "Knowledge base", href: "/agent/knowledge" },
+                  { icon: Gauge, label: "Load tests", href: "/agent/load-tests" },
+                  { icon: Settings, label: "Settings & keys", href: "/agent/settings" },
+                ].map((item) => (
+                  <button
+                    key={item.href}
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      router.push(item.href);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <item.icon className="size-[18px] shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  </button>
+                ))}
+                <div className="my-1.5 h-px bg-border" role="separator" />
+                <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1">
+                  <Sun className="size-[18px] shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-sm">Appearance</span>
+                  <ThemeToggle />
+                </div>
+                <div className="my-1.5 h-px bg-border" role="separator" />
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    void logout();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <LogOut className="size-[18px] shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">Log out</span>
+                </button>
+              </div>
+            </>
+          )}
+          <button
+            onClick={() => setProfileMenuOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={profileMenuOpen}
+            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1 text-left transition-colors hover:bg-sidebar-accent/60"
+          >
             <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
               R
             </div>
@@ -770,62 +843,8 @@ export default function ChatApp() {
                 Personal workspace
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/agent/tasks")}
-              title="Scheduled tasks"
-              aria-label="Scheduled tasks"
-            >
-              <AlarmClock className="size-[18px]" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/agent/sites")}
-              title="My websites"
-              aria-label="My websites"
-            >
-              <Globe className="size-[18px]" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/agent/knowledge")}
-              title="Knowledge base"
-              aria-label="Knowledge base"
-            >
-              <BookOpen className="size-[18px]" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/agent/load-tests")}
-              title="Load tests"
-              aria-label="Load tests"
-            >
-              <Gauge className="size-[18px]" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/agent/settings")}
-              title="Settings & keys"
-              aria-label="Settings & keys"
-            >
-              <Settings className="size-[18px]" />
-            </Button>
-            <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={logout}
-              title="Log out"
-              aria-label="Log out"
-            >
-              <LogOut className="size-[18px]" />
-            </Button>
-          </div>
+            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+          </button>
         </div>
       </aside>
 
