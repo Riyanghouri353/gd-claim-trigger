@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages, stepCountIs, tool } from "ai";
+import { streamText, convertToModelMessages, stepCountIs, tool, createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { createGroq } from "@ai-sdk/groq";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
@@ -210,6 +210,36 @@ function summarizeSteps(steps: any[], finishReason?: string): string {
       ? "I hit my step limit for one turn and stopped mid-task — here is what is already done. Say 'continue' and I will finish it:"
       : "That turn ended without a written summary from the model, but this work really happened:";
   return [head, ...(lines.length ? lines.slice(0, 20) : ["- (no tool work was recorded)"])].join("\n");
+}
+
+/**
+ * Fabrication guard. The model has repeatedly invented screenshot URLs
+ * (plausible-looking Firebase links) when a task failed — the user then
+ * sees a broken image and a false "done" claim. Prompt rules did not stop
+ * it, so it is enforced in code: a markdown image embed survives only if
+ * its URL was actually returned by a tool in this turn (agent file paths).
+ * Everything else is replaced with an explicit "unavailable" note.
+ */
+function collectAllowedImages(node: unknown, into: Set<string>, depth = 0): void {
+  if (depth > 6 || node === null || node === undefined) return;
+  if (typeof node === "string") {
+    if (node.includes("/api/agent/files/")) into.add(node);
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const v of node) collectAllowedImages(v, into, depth + 1);
+    return;
+  }
+  if (typeof node === "object") {
+    for (const v of Object.values(node as Record<string, unknown>)) collectAllowedImages(v, into, depth + 1);
+  }
+}
+
+function sanitizeImageEmbeds(text: string, allowed: Set<string>): string {
+  return text.replace(/!\[([^\]]*)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g, (m, _alt, url) => {
+    if (typeof url === "string" && (url.startsWith("/api/agent/files/") || allowed.has(url))) return m;
+    return "*(image unavailable — no screenshot was returned for this step)*";
+  });
 }
 
 export async function POST(req: Request) {
@@ -1167,7 +1197,14 @@ export async function POST(req: Request) {
           turnPersisted = true;
           // Tool-heavy turns can end with no final text — persist a summary
           // of the actual tool work so the conversation never looks dead.
-          const finalText = text && text.trim() ? text : summarizeSteps(steps as any[], finishReason);
+          const rawText = text && text.trim() ? text : summarizeSteps(steps as any[], finishReason);
+          // Strip any image embed a tool did not actually return (see the
+          // fabrication guard above) before the text reaches history.
+          const allowedImages = new Set<string>();
+          for (const s of (steps as any[]) || []) {
+            for (const r of (s as any)?.toolResults || []) collectAllowedImages((r as any)?.output, allowedImages);
+          }
+          const finalText = sanitizeImageEmbeds(rawText, allowedImages);
           await persistAssistantMessage(conversationId, finalText);
           // Link the conversation to the site this turn created or edited.
           // History persists text only, so this link is what lets the chat
@@ -1213,12 +1250,51 @@ export async function POST(req: Request) {
           }
         },
       });
-      return result.toUIMessageStreamResponse({
-        // Replaces the SDK's default "An error occurred." with something useful.
-        onError: (error) => {
-          console.error("chat stream error", error);
-          return streamErrorMessage(error);
+      // Live fabrication guard: buffer each text block and strip image
+      // embeds no tool returned before the block reaches the user. Tool
+      // outputs stream past first and seed the allowlist for later blocks.
+      const liveAllowed = new Set<string>();
+      const textBuffers = new Map<string, string>();
+      const guard = new TransformStream<any, any>({
+        transform(chunk, controller) {
+          const c: any = chunk;
+          if (c?.type === "tool-output-available") {
+            collectAllowedImages(c.output, liveAllowed);
+            controller.enqueue(chunk);
+            return;
+          }
+          if (c?.type === "text-delta") {
+            textBuffers.set(c.id, (textBuffers.get(c.id) || "") + (c.delta || ""));
+            return;
+          }
+          if (c?.type === "text-end") {
+            const full = textBuffers.get(c.id) || "";
+            textBuffers.delete(c.id);
+            const clean = sanitizeImageEmbeds(full, liveAllowed);
+            if (clean) controller.enqueue({ type: "text-delta", id: c.id, delta: clean });
+            controller.enqueue(chunk);
+            return;
+          }
+          controller.enqueue(chunk);
         },
+        flush(controller) {
+          textBuffers.forEach((full, id) => {
+            const clean = sanitizeImageEmbeds(full, liveAllowed);
+            if (clean) controller.enqueue({ type: "text-delta", id, delta: clean });
+          });
+          textBuffers.clear();
+        },
+      });
+      return createUIMessageStreamResponse({
+        stream: result
+          .toUIMessageStream({
+            // Replaces the SDK's default "An error occurred." with something useful.
+            onError: (error) => {
+              console.error("chat stream error", error);
+              return streamErrorMessage(error);
+            },
+          })
+          .pipeThrough(guard),
       });
     } catch (err) {
       // Synchronous failure before streaming (bad key etc.) — try next key.
