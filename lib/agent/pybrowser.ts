@@ -391,6 +391,17 @@ def fill_verified(selector, value):
             pass
     return got == value
 
+NO_ACCOUNT_ERROR = "The site sent us to its SIGN-UP page — this email appears to have NO account there, so this was not a login and no password was submitted to any login form. Store the email the account is actually under, or ask for a sign-up instead."
+
+def on_signup_page():
+    try:
+        u = (page.url or "").lower()
+        t = (page.title() or "").lower()
+        return ("signup" in u or "sign-up" in u or "sign_up" in u
+                or "create account" in t or "create your account" in t or "sign up" in t)
+    except Exception:
+        return False
+
 def do_login(args):
     username = args.get("username") or ""
     password = args.get("password") or ""
@@ -400,6 +411,12 @@ def do_login(args):
         info["consentDismissed"] = dismiss_consent()
     except Exception:
         pass
+    if on_signup_page():
+        res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+               "value": info, "error": NO_ACCOUNT_ERROR}
+        if snap():
+            res["shot"] = True
+        return res
     find = page.evaluate(LOGIN_FIND_JS)
     used_pw_field = False
     if find.get("hasPassword"):
@@ -443,6 +460,14 @@ def do_login(args):
             st = page.evaluate(LOGIN_STATE_JS)
             if st.get("errorText"):
                 break
+        if on_signup_page():
+            # The identity step routed to account creation: the email has
+            # no account. NEVER fill a password into a sign-up form.
+            res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                   "value": info, "error": NO_ACCOUNT_ERROR}
+            if snap():
+                res["shot"] = True
+            return res
         if not find2.get("hasPassword") and find2.get("identityLockedSelector"):
             # Identity accepted and locked in; advance once more.
             nxt2 = page.evaluate(LOGIN_SUBMIT_JS, find2["identityLockedSelector"])
@@ -465,18 +490,21 @@ def do_login(args):
             used_pw_field = True
         else:
             st2 = page.evaluate(LOGIN_STATE_JS)
-            ttl = (page.title() or "").lower()
-            if "signup" in page.url or "sign up" in ttl or "create account" in ttl:
-                err2 = "The site sent us to its SIGN-UP page — this email appears to have NO account there, so there is no password step to complete. Store the email the account is actually under, or ask for the account to be created instead."
-            else:
-                diag = "identity filled ok: " + str(info.get("identityOk")) + "; advanced via: " + str(info.get("advancedVia")) + "; page error: " + str(st2.get("errorText"))
-                err2 = "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow). Diagnostics — " + diag
+            diag = "identity filled ok: " + str(info.get("identityOk")) + "; advanced via: " + str(info.get("advancedVia")) + "; page error: " + str(st2.get("errorText"))
+            err2 = "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow). Diagnostics — " + diag
             res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
                    "value": info, "error": err2}
             if snap():
                 res["shot"] = True
             return res
     elif find.get("identityLockedSelector"):
+        # A locked email on a sign-up page is account creation, not login.
+        if on_signup_page():
+            res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                   "value": info, "error": NO_ACCOUNT_ERROR}
+            if snap():
+                res["shot"] = True
+            return res
         # The flow already advanced past identity entry: the email field is
         # locked (disabled, prefilled) and the page waits for Continue or
         # shows the password step next.
@@ -560,7 +588,11 @@ def do_login(args):
     info["urlAfter"] = page.url
     info["errorText"] = state.get("errorText")
     captcha = "captcha" in text.lower()
-    if state.get("errorText"):
+    if on_signup_page():
+        # Never report a sign-up form submission as a successful login.
+        ok = False
+        err = NO_ACCOUNT_ERROR
+    elif state.get("errorText"):
         ok = False
         err = "Login appears to have failed — the page shows: " + str(state["errorText"])
     elif state.get("passwordVisible") and page.url == start_url:
