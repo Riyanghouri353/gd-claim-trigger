@@ -484,6 +484,12 @@ def do_login(args):
                     if find2.get("hasPassword"):
                         break
         if find2.get("hasPassword"):
+            if on_signup_page():
+                res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                       "value": info, "error": NO_ACCOUNT_ERROR}
+                if snap():
+                    res["shot"] = True
+                return res
             info["phase"] = 2
             page.fill(find2["passwordSelector"], password, timeout=15000)
             info["passwordSelector"] = find2["passwordSelector"]
@@ -543,6 +549,12 @@ def do_login(args):
             page.wait_for_timeout(1600)
             find2 = page.evaluate(LOGIN_FIND_JS)
         if find2.get("hasPassword"):
+            if on_signup_page():
+                res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                       "value": info, "error": NO_ACCOUNT_ERROR}
+                if snap():
+                    res["shot"] = True
+                return res
             info["phase"] = 2
             page.fill(find2["passwordSelector"], password, timeout=15000)
             info["passwordSelector"] = find2["passwordSelector"]
