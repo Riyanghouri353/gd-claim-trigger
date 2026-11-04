@@ -242,6 +242,21 @@ function sanitizeImageEmbeds(text: string, allowed: Set<string>): string {
   });
 }
 
+const LOGIN_CLAIM_RE = /(successfully logged|logged into your|i've logged|i have logged|login successful|logged in successfully)/i;
+
+/**
+ * Companion to the image guard: when the turn's login action FAILED but the
+ * model's summary claims a successful login, prepend a plain correction so
+ * the user is never left believing the opposite of the tool result.
+ */
+function correctFalseLoginClaim(text: string, loginFailed: boolean): string {
+  if (!loginFailed || !LOGIN_CLAIM_RE.test(text)) return text;
+  return (
+    "⚠️ Correction: the login attempt in this turn actually failed — its tool result is in the steps above. The summary below overstates the result.\n\n" +
+    text
+  );
+}
+
 export async function POST(req: Request) {
   try {
     await requireSession();
@@ -1201,10 +1216,15 @@ export async function POST(req: Request) {
           // Strip any image embed a tool did not actually return (see the
           // fabrication guard above) before the text reaches history.
           const allowedImages = new Set<string>();
+          let loginFailed = false;
           for (const s of (steps as any[]) || []) {
-            for (const r of (s as any)?.toolResults || []) collectAllowedImages((r as any)?.output, allowedImages);
+            for (const r of (s as any)?.toolResults || []) {
+              collectAllowedImages((r as any)?.output, allowedImages);
+              const o: any = (r as any)?.output ?? {};
+              if (o && o.action === "login") loginFailed = o.ok === false;
+            }
           }
-          const finalText = sanitizeImageEmbeds(rawText, allowedImages);
+          const finalText = correctFalseLoginClaim(sanitizeImageEmbeds(rawText, allowedImages), loginFailed);
           await persistAssistantMessage(conversationId, finalText);
           // Link the conversation to the site this turn created or edited.
           // History persists text only, so this link is what lets the chat
@@ -1255,11 +1275,13 @@ export async function POST(req: Request) {
       // outputs stream past first and seed the allowlist for later blocks.
       const liveAllowed = new Set<string>();
       const textBuffers = new Map<string, string>();
+      let liveLoginFailed = false;
       const guard = new TransformStream<any, any>({
         transform(chunk, controller) {
           const c: any = chunk;
           if (c?.type === "tool-output-available") {
             collectAllowedImages(c.output, liveAllowed);
+            if (c.output && c.output.action === "login") liveLoginFailed = c.output.ok === false;
             controller.enqueue(chunk);
             return;
           }
@@ -1270,7 +1292,7 @@ export async function POST(req: Request) {
           if (c?.type === "text-end") {
             const full = textBuffers.get(c.id) || "";
             textBuffers.delete(c.id);
-            const clean = sanitizeImageEmbeds(full, liveAllowed);
+            const clean = correctFalseLoginClaim(sanitizeImageEmbeds(full, liveAllowed), liveLoginFailed);
             if (clean) controller.enqueue({ type: "text-delta", id: c.id, delta: clean });
             controller.enqueue(chunk);
             return;
@@ -1279,7 +1301,7 @@ export async function POST(req: Request) {
         },
         flush(controller) {
           textBuffers.forEach((full, id) => {
-            const clean = sanitizeImageEmbeds(full, liveAllowed);
+            const clean = correctFalseLoginClaim(sanitizeImageEmbeds(full, liveAllowed), liveLoginFailed);
             if (clean) controller.enqueue({ type: "text-delta", id, delta: clean });
           });
           textBuffers.clear();
