@@ -162,30 +162,49 @@ async function persistAssistantMessage(conversationId: string, text: string) {
  * instead of looking dead when the user returns.
  */
 function summarizeSteps(steps: any[], finishReason?: string): string {
-  const lines: string[] = [];
+  const raw: string[] = [];
   for (const s of steps || []) {
     for (const r of (s as any)?.toolResults || []) {
       const out: any = (r as any)?.output ?? {};
       const name = (r as any)?.toolName || "tool";
       if (out && out.ok === false) {
-        lines.push(`- ${name} — FAILED: ${out.error || "unknown error"}`);
+        // Playwright errors arrive as multi-line call logs — keep the digest
+        // readable: first line only, hard-capped.
+        const err = String(out.error || "unknown error").split("\n")[0].slice(0, 160);
+        raw.push(`- ${name} — FAILED: ${err}`);
       } else if (name === "create_site") {
-        lines.push(`- Created website "${out.name || out.site || ""}" (slug: ${out.site})`);
+        raw.push(`- Created website "${out.name || out.site || ""}" (slug: ${out.site})`);
       } else if (name === "write_site_file") {
-        lines.push(`- Wrote file ${out.path}`);
+        raw.push(`- Wrote file ${out.path}`);
       } else if (name === "preview_site") {
-        lines.push(`- Live preview built: ${out.previewUrl || out.url || "ready"}`);
+        raw.push(`- Live preview built: ${out.previewUrl || out.url || "ready"}`);
       } else if (name === "deploy_site") {
-        lines.push(`- Deployed: ${out.url || out.previewUrl || out.liveUrl || "done"}`);
+        raw.push(`- Deployed: ${out.url || out.previewUrl || out.liveUrl || "done"}`);
       } else if (name === "audit_site_quality") {
-        lines.push(`- Quality audit score: ${out.score}/100 (${out.grade})`);
+        raw.push(`- Quality audit score: ${out.score}/100 (${out.grade})`);
       } else if (name === "create_file") {
-        lines.push(`- Created file ${out.name || ""} (${out.download || ""})`);
+        raw.push(`- Created file ${out.name || ""} (${out.download || ""})`);
       } else {
-        lines.push(`- ${name} — done`);
+        raw.push(`- ${name} — done`);
       }
     }
   }
+  // Compress consecutive identical lines ("py_browser — done ×12").
+  const lines: string[] = [];
+  let last = "";
+  let run = 0;
+  const flush = () => {
+    if (last) lines.push(run > 1 ? `${last} ×${run}` : last);
+  };
+  for (const l of raw) {
+    if (l === last) run++;
+    else {
+      flush();
+      last = l;
+      run = 1;
+    }
+  }
+  flush();
   const head =
     finishReason === "tool-calls"
       ? "I hit my step limit for one turn and stopped mid-task — here is what is already done. Say 'continue' and I will finish it:"
@@ -297,7 +316,8 @@ export async function POST(req: Request) {
       "\n\nPython automation (py_browser + api_test): for FORM FILLING and precise page interaction prefer py_browser — a Playwright (Python) browser driven by DOM selectors (fill/click/submit/scroll), far more reliable than pixel clicks; use the desktop browser only when a page needs visual aiming. Use api_test to verify HTTP APIs with assertions (status, body, JSON paths) instead of eyeballing raw responses." +
       "\n\nSITE TESTING PROTOCOL — when the user asks you to test a website, form, flow or API, work like a QA engineer who thinks before acting: (1) PLAN FIRST: state the goal and the steps you will run, with what you EXPECT to observe at each step, before touching anything. (2) INSPECT before interacting: py_browser action=inspect returns the page's real forms, fields, buttons and correct selectors — never guess selectors blind. (3) EXECUTE the plan with run_site_test for multi-step flows (it checks your expectations — page text, URL, field read-backs, AND the actual HTTP response a submit produced via expect.responseStatus — and stops with a screenshot on failure); use py_browser step-by-step only when exploring. (4) VERIFY outcomes, never assume them: a form counts as passed only when the result page, an API response, or the site's submissions inbox (list_site_submissions) proves the data landed. (5) DIAGNOSE before retrying: on failure, read the screenshot and page text, state your hypothesis (wrong selector, validation message, element below the fold -> scroll, slow page -> wait_for), change ONE thing, and retry — at most 2 retries per step, then report the blocker with the evidence. (6) REPORT a per-step pass/fail summary with the concrete evidence you observed (URLs, values read back, response codes), not just 'it worked'." +
       "\n\nNETWORK INTERCEPTION — you can watch and rewrite the tested page's traffic: (a) py_browser action=net_log lists the requests the page made (method, URL, status, request payload, response body) — use it to PROVE a form actually called the API and with what data, to discover the endpoint a page uses, or to check for failed calls. (b) action=net_intercept installs a rule BEFORE the action that triggers the traffic; pattern is a URL substring or * glob. mode=mock answers matching requests with your status + body WITHOUT hitting the real server (test error handling, empty states, edge-case payloads). mode=block aborts matching requests (offline behavior, blocked scripts). mode=modify rewrites the outgoing request: newUrl (point the app at another backend), addHeaders/removeHeaders (e.g. strip an Authorization header and verify the API rejects the call — only on sites the user owns or is testing with permission), method, postData (send a malformed payload and observe validation). (c) Rules persist in the session until action=net_stop — ALWAYS net_stop when the test ends and state which rules were active during it. (d) action=evaluate runs JavaScript in the page when you need to trigger or inspect something clicks can't reach (fire a fetch directly, read window state) — its return value comes back to you." +
-      "\n\nACCOUNT FLOWS (sign-up & login): credentials live in the Test accounts vault — list_test_accounts shows site/label/email/username, never passwords. LOGGING IN: open the login page, then use py_browser action=login with username={{account:email:<site>}} (or {{account:username:<site>}}) and password={{account:password:<site>}} — the login action finds the form itself, fills it, submits, handles two-step flows (identity first, then password), and reports whether you ended up logged in plus any error banner the page showed. In run_site_test, use a login step the same way. Afterwards VERIFY the logged-in state (account name visible, dashboard URL, 'Log out' link) before continuing, and do the follow-on tasks in the SAME browser session — the login persists across calls. If the login action reports no form or a failure, fall back to inspect + manual fill/submit with the same tokens, and hard-stop at CAPTCHAs or OTP/code prompts. SIGNING UP: if no account exists for the site, call generate_test_identity first (it creates + stores one), then fill the sign-up form with that identity's tokens (email/username/password) plus any other required fields with sensible test data; after submitting, verify the welcome/confirmation state, and try logging in with the same stored account when the flow allows. NEVER ask the user to paste a password into chat, and never invent a password for an existing account." +
+      "\n\nACCOUNT FLOWS (sign-up & login): credentials live in the Test accounts vault — list_test_accounts shows site/label/email/username, never passwords. LOGGING IN: open the login page, then use py_browser action=login with username={{account:email:<site>}} (or {{account:username:<site>}}) and password={{account:password:<site>}} — the login action finds the form itself, fills it, submits, handles two-step flows (identity first, then password) AND flows where the email is already locked in, and reports whether you ended up logged in plus any error banner the page showed. In run_site_test, use a login step the same way. LOGIN DISCIPLINE: try the login action ONCE; if it fails, read its error — either fix the ONE cause it names (e.g. wrong account, stuck session: close the py_browser session and retry the login action once on the fresh session) or report the blocker plainly. Do NOT improvise manual selector fills for a login, and never guess at ambiguous buttons. Afterwards VERIFY the logged-in state (account name visible, dashboard URL, 'Log out' link) before continuing, and do the follow-on tasks in the SAME browser session — the login persists across calls. Hard-stop at CAPTCHAs or OTP/code prompts and say so. SIGNING UP: if no account exists for the site, call generate_test_identity first (it creates + stores one), then fill the sign-up form with that identity's tokens (email/username/password) plus any other required fields with sensible test data; after submitting, verify the welcome/confirmation state, and try logging in with the same stored account when the flow allows. NEVER ask the user to paste a password into chat, and never invent a password for an existing account." +
+      "\n\nEVIDENCE INTEGRITY (critical): your reply may only contain image or file links that a tool returned in THIS conversation (a screenshotPath or file URL from a tool result). NEVER construct, guess, shorten, or reuse a URL — an invented link is a critical failure, worse than admitting you have none. The same applies to claims: a login, a submission, or any task counts as done ONLY when this turn's tool results prove it (post-action URL, page text, read-back value, or screenshot). If the proof is missing, say plainly what did and did not happen — the user trusts your report to operate their accounts, and a confident false report breaks that trust." +
       "\n\nWEB TASKS (do things, not just test): when the user asks you to DO something on a website — register an account, complete a multi-step flow, configure a dashboard, fill an application — work like a careful human operator: restate the goal and the proof you'll look for at the end; plan; execute with py_browser (inspect first, credential tokens for logins, run_site_test-style verification as you go); post brief progress notes at major steps with screenshots at key states; and finish by verifying the end state from evidence and reporting exactly what was done, including which account (email/username) was used." +
       "\n\nHARD STOPS — stop and report for the user to take over when you hit: a CAPTCHA or bot check, an email/SMS verification code you cannot read, a payment or anything that spends real money, or a step that changes something irreversible outside the task (deleting an account, sending email/messages to real people). Everything else, push through and verify.";
   }
