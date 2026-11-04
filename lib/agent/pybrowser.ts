@@ -297,24 +297,23 @@ LOGIN_SUBMIT_JS = r"""
     const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && !el.disabled;
   }
-  function selFor(el) {
-    if (el.id) return "#" + el.id;
-    if (el.name) return el.tagName.toLowerCase() + "[name='" + el.name + "']";
-    const ph = el.getAttribute("placeholder");
-    if (ph) return "[placeholder='" + ph + "']";
-    const al = el.getAttribute("aria-label");
-    if (al) return "[aria-label='" + al + "']";
-    return el.tagName.toLowerCase();
+  function mark(el) {
+    // Tag the exact element: a generated selector like "button" would make
+    // Playwright click the FIRST button on the page (observed live: the
+    // login submit was found correctly but the click landed elsewhere).
+    document.querySelectorAll("[data-pb-target]").forEach((x) => x.removeAttribute("data-pb-target"));
+    el.setAttribute("data-pb-target", "1");
+    return "[data-pb-target='1']";
   }
   const direct = scope.querySelector("button[type='submit'], input[type='submit']");
-  if (direct && vis(direct)) return selFor(direct);
+  if (direct && vis(direct)) return mark(direct);
   const words = ["log in", "login", "sign in", "signin", "continue", "next", "submit"];
   const btns = Array.from(scope.querySelectorAll("button, input[type='button'], [role='button']")).filter(vis);
   for (const b of btns) {
     const t = ((b.innerText || b.value || "") + " " + (b.getAttribute("aria-label") || "")).trim().toLowerCase();
-    if (words.some((w) => t === w || t.startsWith(w))) return selFor(b);
+    if (words.some((w) => t === w || t.startsWith(w))) return mark(b);
   }
-  return btns.length ? selFor(btns[0]) : null;
+  return btns.length ? mark(btns[0]) : null;
 }
 """
 
@@ -338,6 +337,21 @@ LOGIN_STATE_JS = r"""
 }
 """
 
+CONSENT_JS = r"""
+() => {
+  const words = ["ok", "accept", "accept all", "got it", "i agree", "allow all"];
+  const els = Array.from(document.querySelectorAll("button, a, [role='button']"));
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    if (r.width === 0 || r.height === 0 || s.visibility === "hidden" || s.display === "none") continue;
+    const t = (el.innerText || "").trim().toLowerCase();
+    if (words.includes(t)) { el.click(); return t; }
+  }
+  return null;
+}
+"""
+
 def dismiss_consent():
     # Cookie/consent banners commonly overlay the form and swallow clicks.
     for label in ["OK", "Accept", "Accept all", "Got it", "I agree", "Allow all"]:
@@ -349,6 +363,13 @@ def dismiss_consent():
                 return True
         except Exception:
             pass
+    try:
+        hit = page.evaluate(CONSENT_JS)
+        if hit:
+            page.wait_for_timeout(400)
+            return True
+    except Exception:
+        pass
     return False
 
 def fill_verified(selector, value):
