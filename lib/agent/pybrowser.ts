@@ -240,11 +240,192 @@ INSPECT_JS = r"""
 }
 """
 
+LOGIN_FIND_JS = r"""
+() => {
+  function vis(el) {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && !el.disabled;
+  }
+  function selFor(el) {
+    if (el.id) return "#" + el.id;
+    if (el.name) return el.tagName.toLowerCase() + "[name='" + el.name + "']";
+    const ph = el.getAttribute("placeholder");
+    if (ph) return "[placeholder='" + ph + "']";
+    const al = el.getAttribute("aria-label");
+    if (al) return "[aria-label='" + al + "']";
+    return el.tagName.toLowerCase();
+  }
+  const inputs = Array.from(document.querySelectorAll("input")).filter(vis);
+  const pw = inputs.find((el) => (el.getAttribute("type") || "").toLowerCase() === "password") || null;
+  const form = pw ? pw.closest("form") : null;
+  const pool = inputs.filter((el) => el !== pw && ["text", "email", "tel", ""].includes((el.getAttribute("type") || "text").toLowerCase()));
+  function rank(el) {
+    let s = 0;
+    const hay = ((el.getAttribute("name") || "") + " " + (el.id || "") + " " + (el.getAttribute("placeholder") || "") + " " + (el.getAttribute("autocomplete") || "")).toLowerCase();
+    if ((el.getAttribute("type") || "").toLowerCase() === "email") s += 5;
+    if (hay.includes("email")) s += 5;
+    if (hay.includes("user")) s += 4;
+    if (hay.includes("login")) s += 3;
+    if (hay.includes("username")) s += 4;
+    if (form && el.closest("form") === form) s += 3;
+    return s;
+  }
+  pool.sort((x, y) => rank(y) - rank(x));
+  const identity = pool.length ? pool[0] : null;
+  return {
+    hasPassword: !!pw,
+    passwordSelector: pw ? selFor(pw) : null,
+    identitySelector: identity ? selFor(identity) : null,
+    formSelector: form ? (form.id ? "#" + form.id : "form") : null
+  };
+}
+"""
+
+LOGIN_SUBMIT_JS = r"""
+(sel) => {
+  const anchor = document.querySelector(sel);
+  if (!anchor) return null;
+  const scope = anchor.closest("form") || document;
+  function vis(el) {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && !el.disabled;
+  }
+  function selFor(el) {
+    if (el.id) return "#" + el.id;
+    if (el.name) return el.tagName.toLowerCase() + "[name='" + el.name + "']";
+    const ph = el.getAttribute("placeholder");
+    if (ph) return "[placeholder='" + ph + "']";
+    const al = el.getAttribute("aria-label");
+    if (al) return "[aria-label='" + al + "']";
+    return el.tagName.toLowerCase();
+  }
+  const direct = scope.querySelector("button[type='submit'], input[type='submit']");
+  if (direct && vis(direct)) return selFor(direct);
+  const words = ["log in", "login", "sign in", "signin", "continue", "next", "submit"];
+  const btns = Array.from(scope.querySelectorAll("button, input[type='button'], [role='button']")).filter(vis);
+  for (const b of btns) {
+    const t = ((b.innerText || b.value || "") + " " + (b.getAttribute("aria-label") || "")).trim().toLowerCase();
+    if (words.some((w) => t === w || t.startsWith(w))) return selFor(b);
+  }
+  return btns.length ? selFor(btns[0]) : null;
+}
+"""
+
+LOGIN_STATE_JS = r"""
+() => {
+  function vis(el) {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+  }
+  const pwVisible = Array.from(document.querySelectorAll("input[type='password']")).some(vis);
+  let errorText = null;
+  const sels = "[role='alert'], .error, .alert, .invalid-feedback, [class*='error'], [class*='Error'], [class*='alert']";
+  for (const el of Array.from(document.querySelectorAll(sels))) {
+    if (vis(el)) {
+      const t = (el.innerText || "").trim();
+      if (t) { errorText = t.slice(0, 220); break; }
+    }
+  }
+  return { passwordVisible: pwVisible, errorText: errorText };
+}
+"""
+
+def do_login(args):
+    username = args.get("username") or ""
+    password = args.get("password") or ""
+    start_url = page.url
+    info = {"phase": 1, "urlBefore": start_url}
+    find = page.evaluate(LOGIN_FIND_JS)
+    used_pw_field = False
+    if find.get("hasPassword"):
+        if username and find.get("identitySelector"):
+            page.fill(find["identitySelector"], username, timeout=15000)
+            info["identitySelector"] = find["identitySelector"]
+        page.fill(find["passwordSelector"], password, timeout=15000)
+        info["passwordSelector"] = find["passwordSelector"]
+        used_pw_field = True
+    elif find.get("identitySelector") and username:
+        # Two-step flow: identity first, then the password step appears.
+        page.fill(find["identitySelector"], username, timeout=15000)
+        info["identitySelector"] = find["identitySelector"]
+        nxt = page.evaluate(LOGIN_SUBMIT_JS, find["identitySelector"])
+        if nxt:
+            page.click(nxt, timeout=15000)
+        else:
+            page.keyboard.press("Enter")
+        try:
+            page.wait_for_load_state("networkidle", timeout=6000)
+        except Exception:
+            pass
+        page.wait_for_timeout(700)
+        find2 = page.evaluate(LOGIN_FIND_JS)
+        if find2.get("hasPassword"):
+            info["phase"] = 2
+            page.fill(find2["passwordSelector"], password, timeout=15000)
+            info["passwordSelector"] = find2["passwordSelector"]
+            used_pw_field = True
+        else:
+            res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                   "value": info,
+                   "error": "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow)"}
+            if snap():
+                res["shot"] = True
+            return res
+    else:
+        res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(), "value": info,
+               "error": "No login form found on this page (no visible password field and no identity field to start a two-step login). Use open + inspect first to see the page's forms."}
+        if snap():
+            res["shot"] = True
+        return res
+    # Submit the password step.
+    anchor = info.get("passwordSelector")
+    submit_sel = page.evaluate(LOGIN_SUBMIT_JS, anchor) if anchor else None
+    if submit_sel:
+        page.click(submit_sel, timeout=15000)
+        info["submittedVia"] = submit_sel
+    else:
+        if anchor:
+            page.focus(anchor)
+        page.keyboard.press("Enter")
+        info["submittedVia"] = "Enter"
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(600)
+    state = page.evaluate(LOGIN_STATE_JS)
+    text = page_text()
+    info["urlAfter"] = page.url
+    info["errorText"] = state.get("errorText")
+    captcha = "captcha" in text.lower()
+    if state.get("errorText"):
+        ok = False
+        err = "Login appears to have failed — the page shows: " + str(state["errorText"])
+    elif state.get("passwordVisible") and page.url == start_url:
+        ok = False
+        err = "Login form is still shown after submitting — the credentials may be wrong, or the site needs another step"
+        if captcha:
+            err += " (a CAPTCHA seems present — hard stop)"
+    else:
+        ok = True
+        err = None
+    res = {"ok": ok, "url": page.url, "title": page.title(), "text": text, "value": info}
+    if err:
+        res["error"] = err
+    if snap():
+        res["shot"] = True
+    return res
+
 def do(cmd):
     a = cmd.get("action")
     args = cmd.get("args") or {}
     if a in ("open", "goto"):
         page.goto(args["url"], wait_until="domcontentloaded", timeout=45000)
+    elif a == "login":
+        return do_login(args)
     elif a == "inspect":
         res0 = {"ok": True, "url": page.url, "title": page.title(), "elements": page.evaluate(INSPECT_JS)}
         if args.get("screenshot"):
@@ -577,25 +758,28 @@ async function pyBrowserActionInner(
   action: string,
   args: Record<string, unknown> = {}
 ): Promise<PyBrowserResult> {
-  // Credential tokens: a fill/type value may contain
+  // Credential tokens: a fill/type value — or a login action's username /
+  // password — may contain
   // {{account:<email|username|password>:<account id or site>}} — resolve it
   // HERE, server-side, so the real secret goes straight to the sandbox and
   // never enters the model's context or the chat transcript.
   let usedPasswordToken = false;
-  if (typeof args.value === "string" && args.value.includes("{{account:")) {
+  for (const field of ["value", "username", "password"] as const) {
+    const raw = args[field];
+    if (typeof raw !== "string" || !raw.includes("{{account:")) continue;
     const tokenRe = /\{\{account:(email|username|password):([^}]+)\}\}/g;
-    const matches = Array.from(args.value.matchAll(tokenRe));
-    let resolved = args.value;
+    const matches = Array.from(raw.matchAll(tokenRe));
+    let resolved = raw;
     for (const m of matches) {
-      const field = m[1] as "email" | "username" | "password";
-      const secret = await resolveAccountField(m[2].trim(), field).catch(() => null);
+      const kind = m[1] as "email" | "username" | "password";
+      const secret = await resolveAccountField(m[2].trim(), kind).catch(() => null);
       if (secret === null) {
         return { ok: false, action, error: `No test account found for "${m[2].trim()}" — add it in Settings → Test accounts or generate an identity first` };
       }
-      if (field === "password") usedPasswordToken = true;
+      if (kind === "password") usedPasswordToken = true;
       resolved = resolved.split(m[0]).join(secret);
     }
-    args = { ...args, value: resolved };
+    args = { ...args, [field]: resolved };
   }
   const key = keyOf(conversationId);
   if (action === "close") {
@@ -614,7 +798,7 @@ async function pyBrowserActionInner(
     20_000,
     undefined
   );
-  const timeoutMs = action === "open" || action === "goto" ? 75_000 : 45_000;
+  const timeoutMs = action === "open" || action === "goto" || action === "login" ? 75_000 : 45_000;
   const deadline = Date.now() + timeoutMs;
   let res: any = null;
   while (Date.now() < deadline) {
@@ -865,10 +1049,12 @@ export async function apiTest(apiKey: string, spec: ApiTestSpec): Promise<ApiTes
 // --- Structured site tests ---------------------------------------------------
 
 export interface SiteTestStep {
-  action: "open" | "inspect" | "fill" | "type" | "click" | "submit" | "press" | "scroll" | "wait_for" | "read" | "screenshot" | "net_log" | "net_clear" | "net_intercept" | "net_rules" | "net_stop" | "evaluate";
+  action: "open" | "inspect" | "login" | "fill" | "type" | "click" | "submit" | "press" | "scroll" | "wait_for" | "read" | "screenshot" | "net_log" | "net_clear" | "net_intercept" | "net_rules" | "net_stop" | "evaluate";
   url?: string;
   selector?: string;
   value?: string;
+  username?: string;
+  password?: string;
   key?: string;
   direction?: "up" | "down";
   amount?: number;
@@ -885,9 +1071,12 @@ export interface SiteTestStep {
   note?: string;
   expect?: {
     textContains?: string;
+    textNotContains?: string;
     urlContains?: string;
     titleContains?: string;
     valueEquals?: string;
+    responseStatus?: number;
+    responseUrlContains?: string;
   };
 }
 
@@ -922,10 +1111,16 @@ export async function runSiteTest(
   let stoppedAtStep: number | undefined;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    // A responseStatus expectation measures THIS step's traffic only.
+    if (step.expect?.responseStatus !== undefined) {
+      await pyBrowserAction(apiKey, conversationId, "net_clear", {}).catch(() => {});
+    }
     const r = await pyBrowserAction(apiKey, conversationId, step.action, {
       url: step.url,
       selector: step.selector,
       value: step.value,
+      username: step.username,
+      password: step.password,
       key: step.key,
       direction: step.direction,
       amount: step.amount,
@@ -947,6 +1142,20 @@ export async function runSiteTest(
     const exp = step.expect || {};
     if (exp.textContains && !(r.text || "").includes(exp.textContains)) {
       failures.push(`expected page text to contain "${exp.textContains}"`);
+    }
+    if (exp.textNotContains && (r.text || "").includes(exp.textNotContains)) {
+      failures.push(`expected page text NOT to contain "${exp.textNotContains}"`);
+    }
+    if (exp.responseStatus !== undefined) {
+      const log = await pyBrowserAction(apiKey, conversationId, "net_log", { limit: 60 }).catch(() => null);
+      const rawNet = (log?.network as { url?: string; status?: number }[] | undefined) || [];
+      const entries = rawNet.filter(
+        (e) => typeof e.status === "number" && (!exp.responseUrlContains || (e.url || "").includes(exp.responseUrlContains))
+      );
+      if (!entries.some((e) => e.status === exp.responseStatus)) {
+        const seen = entries.slice(-5).map((e) => `${e.status} ${(e.url || "").slice(-60)}`).join("; ");
+        failures.push(`expected a response with status ${exp.responseStatus}${exp.responseUrlContains ? ` for a URL containing "${exp.responseUrlContains}"` : ""}; observed: ${seen || "no responses captured"}`);
+      }
     }
     if (exp.urlContains && !(r.url || "").includes(exp.urlContains)) {
       failures.push(`expected URL to contain "${exp.urlContains}", got "${r.url || ""}"`);

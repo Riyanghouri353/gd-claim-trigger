@@ -107,7 +107,7 @@ async function buildSystemPrompt(task: AgentTask): Promise<string> {
     "Text only: no visual guides. If you take browser screenshots, link the most useful one in the report as ![screenshot](screenshotPath). " +
     "If something blocks you, say exactly what in the report instead of failing silently." +
     "\n\nSITE TESTING PROTOCOL (when the task involves testing a site, form, flow or API): think before acting — plan the steps and what you EXPECT at each one; inspect pages (py_browser action=inspect) for real selectors before filling; execute multi-step flows with run_site_test so expectations are checked and failures stop with a screenshot; verify outcomes from evidence (result page, API response, submissions inbox), never assume; on failure, form a hypothesis from the screenshot/page text, change ONE thing, retry at most twice, then report the blocker with evidence. The report must give a per-step pass/fail with observed values." +
-    "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); fill credentials ONLY via {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} tokens. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task." +
+    "\n\nACCOUNT FLOWS + WEB TASKS: logins use the Test accounts vault — list_test_accounts (never shows passwords); sign in with py_browser action=login (username/password as the tokens below — it finds and submits the login form itself, two-step flows included) or a login step in run_site_test; manual fills use tokens ONLY: {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}}. For sign-ups with no stored account, generate_test_identity creates + stores one, then use its tokens. Verify logged-in/success states from evidence (page text, URL, account indicator) and name the account used (email/username) in the report. HARD STOPS — report and stop at: CAPTCHAs, email/SMS codes you cannot read, payments or anything spending real money, irreversible actions outside the task." +
     "\n\nNETWORK INTERCEPTION: py_browser net_log shows the requests a page made (method/URL/status/payload/response body) — use it to prove a form really called its API. net_intercept (pattern = URL substring or * glob; set it BEFORE the triggering action) rewrites traffic: mode=mock answers with your status/body (error & edge-case tests without touching the backend), mode=block aborts matches, mode=modify rewrites the request (newUrl, addHeaders, removeHeaders, method, postData — e.g. strip Authorization on the user's own site and verify rejection). Rules persist until net_stop — always net_stop at the end and state which rules were active. evaluate runs JavaScript in the page when clicks can't reach what you need." +
     "\n\nSENIOR WEBSITE BUILDER PROTOCOL (when a task creates or edits a website): work like a senior developer — (1) brief: business, target visitor, ONE primary conversion action, routes, brand feel (state assumptions in the report); (2) write lib/site-data.js FIRST (real tagline, 50–160 char SEO description — never the starter placeholder — nav matching routes, contact details, deliberate theme.primary brand color); (3) the scaffold layout already provides header/footer/SEO metadata/sitemap/robots — pages are content only, never render your own header/footer/main; keep content data in lib/ files; compose pages from @/components/sections (marketing, contact, states) + shadcn/ui primitives before writing custom components; (4) real benefit-led copy only — no lorem ipsum, no invented stats/testimonials/logos; exactly one h1 per page; primary CTA above the fold and at the end; (5) forms ONLY via LeadForm/submitForm; (6) QUALITY GATE before reporting done: audit_site_quality (fix all errors + key warnings, re-audit), preview_site (production build must pass), visual check of the preview URL, and a run_site_test pass on the key flow; report routes, audit score, build result, and what the user still needs to provide.";
   prompt +=
@@ -476,10 +476,12 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       },
     });
     tools.py_browser = tool({
-      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close + NETWORK: net_log (requests the page made: method/URL/status/payload/response body, filter urlContains/method/limit), net_intercept (pattern + mode: mock answers with your status/body, block aborts, modify rewrites newUrl/addHeaders/removeHeaders/method/postData — set BEFORE the triggering action), net_rules, net_stop (clear rules), net_clear (clear log), evaluate (run JS in the page, async ok). inspect maps the page's forms/fields/buttons + selectors — use it before filling. fill returns the field's read-back value (masked for password tokens). CREDENTIALS: fill with tokens {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} — never type a real password yourself. Session persists across calls. Link any screenshotPath in the report.",
+      description: "Python (Playwright) browser automation — PREFER for form filling/precise interaction (DOM selectors, not pixels). Actions: open/inspect/login/fill/type/click/submit/press/scroll/wait_for/read/screenshot/close + NETWORK: net_log (requests the page made: method/URL/status/payload/response body, filter urlContains/method/limit), net_intercept (pattern + mode: mock answers with your status/body, block aborts, modify rewrites newUrl/addHeaders/removeHeaders/method/postData — set BEFORE the triggering action), net_rules, net_stop (clear rules), net_clear (clear log), evaluate (run JS in the page, async ok). inspect maps the page's forms/fields/buttons + selectors — use it before filling. login finds the page's login form itself and signs in with the username/password args (handles two-step flows) and reports success or the page's error banner. fill returns the field's read-back value (masked for password tokens). CREDENTIALS: fill (or login's username/password) with tokens {{account:email:<site>}} / {{account:username:<site>}} / {{account:password:<site>}} — never type a real password yourself. Session persists across calls. Link any screenshotPath in the report.",
       inputSchema: z.object({
-        action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
+        action: z.enum(["open", "inspect", "login", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "close", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
         url: z.string().optional(),
+        username: z.string().optional(),
+        password: z.string().optional(),
         selector: z.string().optional(),
         value: z.string().optional(),
         key: z.string().optional(),
@@ -511,14 +513,16 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
       },
     });
     tools.run_site_test = tool({
-      description: "Run a PLANNED site test (array of steps with optional expect {textContains, urlContains, titleContains, valueEquals}) in the py_browser session. Stops at the first failure with a screenshot + observed values. Inspect the page first for real selectors, then encode the plan.",
+      description: "Run a PLANNED site test (array of steps with optional expect {textContains, textNotContains, urlContains, titleContains, valueEquals, responseStatus (+responseUrlContains) — the actual HTTP status the step's traffic produced}) in the py_browser session. A step with action=login signs in via its username/password fields (vault tokens); the driver finds and submits the login form itself, two-step flows included. Stops at the first failure with a screenshot + observed values. Inspect the page first for real selectors, then encode the plan.",
       inputSchema: z.object({
         steps: z.array(
           z.object({
-            action: z.enum(["open", "inspect", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
+            action: z.enum(["open", "inspect", "login", "fill", "type", "click", "submit", "press", "scroll", "wait_for", "read", "screenshot", "net_log", "net_clear", "net_intercept", "net_rules", "net_stop", "evaluate"]),
             url: z.string().optional(),
             selector: z.string().optional(),
             value: z.string().optional(),
+            username: z.string().optional(),
+            password: z.string().optional(),
             key: z.string().optional(),
             direction: z.enum(["up", "down"]).optional(),
             amount: z.number().optional(),
@@ -535,9 +539,12 @@ function buildTools(task: AgentTask, conversationId: string, e2bKey: string | nu
             note: z.string().optional(),
             expect: z.object({
               textContains: z.string().optional(),
+              textNotContains: z.string().optional(),
               urlContains: z.string().optional(),
               titleContains: z.string().optional(),
               valueEquals: z.string().optional(),
+              responseStatus: z.number().optional(),
+              responseUrlContains: z.string().optional(),
             }).optional(),
           })
         ).min(1).max(25),
