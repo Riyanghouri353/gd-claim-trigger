@@ -273,10 +273,15 @@ LOGIN_FIND_JS = r"""
   }
   pool.sort((x, y) => rank(y) - rank(x));
   const identity = pool.length ? pool[0] : null;
+  const lockedCands = Array.from(document.querySelectorAll("input")).filter((el) =>
+    el.disabled && el.value && ["text", "email", ""].includes((el.getAttribute("type") || "text").toLowerCase()));
+  const locked = lockedCands.length ? lockedCands[0] : null;
   return {
     hasPassword: !!pw,
     passwordSelector: pw ? selFor(pw) : null,
     identitySelector: identity ? selFor(identity) : null,
+    identityLockedSelector: locked ? selFor(locked) : null,
+    identityLockedValue: locked ? locked.value : null,
     formSelector: form ? (form.id ? "#" + form.id : "form") : null
   };
 }
@@ -362,6 +367,10 @@ def do_login(args):
             pass
         page.wait_for_timeout(700)
         find2 = page.evaluate(LOGIN_FIND_JS)
+        if not find2.get("hasPassword"):
+            # The password step may render a beat after the identity step.
+            page.wait_for_timeout(1600)
+            find2 = page.evaluate(LOGIN_FIND_JS)
         if find2.get("hasPassword"):
             info["phase"] = 2
             page.fill(find2["passwordSelector"], password, timeout=15000)
@@ -371,6 +380,53 @@ def do_login(args):
             res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
                    "value": info,
                    "error": "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow)"}
+            if snap():
+                res["shot"] = True
+            return res
+    elif find.get("identityLockedSelector"):
+        # The flow already advanced past identity entry: the email field is
+        # locked (disabled, prefilled) and the page waits for Continue or
+        # shows the password step next.
+        locked_val = find.get("identityLockedValue") or ""
+        if username and locked_val and locked_val.lower() != str(username).lower() and not args.get("_recovered"):
+            # Locked onto a DIFFERENT email than the account asked for —
+            # reload once for a fresh form and run the whole login again.
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(900)
+            except Exception:
+                pass
+            args2 = dict(args)
+            args2["_recovered"] = True
+            return do_login(args2)
+        info["identitySelector"] = find["identityLockedSelector"]
+        info["lockedIdentity"] = True
+        nxt = page.evaluate(LOGIN_SUBMIT_JS, find["identityLockedSelector"])
+        if nxt:
+            page.click(nxt, timeout=15000)
+            info["advancedVia"] = nxt
+        else:
+            page.keyboard.press("Enter")
+            info["advancedVia"] = "Enter"
+        try:
+            page.wait_for_load_state("networkidle", timeout=6000)
+        except Exception:
+            pass
+        page.wait_for_timeout(900)
+        find2 = page.evaluate(LOGIN_FIND_JS)
+        if not find2.get("hasPassword"):
+            page.wait_for_timeout(1600)
+            find2 = page.evaluate(LOGIN_FIND_JS)
+        if find2.get("hasPassword"):
+            info["phase"] = 2
+            page.fill(find2["passwordSelector"], password, timeout=15000)
+            info["passwordSelector"] = find2["passwordSelector"]
+            used_pw_field = True
+        else:
+            state0 = page.evaluate(LOGIN_STATE_JS)
+            res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
+                   "value": info,
+                   "error": "Advanced past the locked email step but no password field appeared" + ((" — the page shows: " + str(state0.get("errorText"))) if state0.get("errorText") else " (the site may continue by emailed code/link instead of a password — hard stop)")}
             if snap():
                 res["shot"] = True
             return res
