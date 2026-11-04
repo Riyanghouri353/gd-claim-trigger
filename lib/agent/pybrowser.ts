@@ -415,7 +415,14 @@ def do_login(args):
         info["identitySelector"] = find["identitySelector"]
         nxt = page.evaluate(LOGIN_SUBMIT_JS, find["identitySelector"])
         if nxt:
-            page.click(nxt, timeout=15000)
+            try:
+                page.click(nxt, timeout=15000)
+            except Exception as e:
+                # The button often sits busy/disabled while the site checks
+                # the email — don't die on the raw timeout; the poll below
+                # continues from whatever state the page settles into.
+                info["advanceClickError"] = str(e)[:120]
+                page.wait_for_timeout(1800)
             info["advancedVia"] = nxt
         else:
             page.keyboard.press("Enter")
@@ -431,6 +438,8 @@ def do_login(args):
             find2 = page.evaluate(LOGIN_FIND_JS)
             if find2.get("hasPassword") or find2.get("identityLockedSelector"):
                 break
+            if page.url != start_url:
+                break
             st = page.evaluate(LOGIN_STATE_JS)
             if st.get("errorText"):
                 break
@@ -438,7 +447,11 @@ def do_login(args):
             # Identity accepted and locked in; advance once more.
             nxt2 = page.evaluate(LOGIN_SUBMIT_JS, find2["identityLockedSelector"])
             if nxt2:
-                page.click(nxt2, timeout=15000)
+                try:
+                    page.click(nxt2, timeout=15000)
+                except Exception as e:
+                    info["advancedVia2Error"] = str(e)[:120]
+                    page.wait_for_timeout(1800)
                 info["advancedVia2"] = nxt2
                 for _ in range(12):
                     page.wait_for_timeout(600)
@@ -452,10 +465,14 @@ def do_login(args):
             used_pw_field = True
         else:
             st2 = page.evaluate(LOGIN_STATE_JS)
-            diag = "identity filled ok: " + str(info.get("identityOk")) + "; advanced via: " + str(info.get("advancedVia")) + "; page error: " + str(st2.get("errorText"))
+            ttl = (page.title() or "").lower()
+            if "signup" in page.url or "sign up" in ttl or "create account" in ttl:
+                err2 = "The site sent us to its SIGN-UP page — this email appears to have NO account there, so there is no password step to complete. Store the email the account is actually under, or ask for the account to be created instead."
+            else:
+                diag = "identity filled ok: " + str(info.get("identityOk")) + "; advanced via: " + str(info.get("advancedVia")) + "; page error: " + str(st2.get("errorText"))
+                err2 = "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow). Diagnostics — " + diag
             res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
-                   "value": info,
-                   "error": "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow). Diagnostics — " + diag}
+                   "value": info, "error": err2}
             if snap():
                 res["shot"] = True
             return res
@@ -479,7 +496,11 @@ def do_login(args):
         info["lockedIdentity"] = True
         nxt = page.evaluate(LOGIN_SUBMIT_JS, find["identityLockedSelector"])
         if nxt:
-            page.click(nxt, timeout=15000)
+            try:
+                page.click(nxt, timeout=15000)
+            except Exception as e:
+                info["advanceClickError"] = str(e)[:120]
+                page.wait_for_timeout(1800)
             info["advancedVia"] = nxt
         else:
             page.keyboard.press("Enter")
@@ -516,7 +537,13 @@ def do_login(args):
     anchor = info.get("passwordSelector")
     submit_sel = page.evaluate(LOGIN_SUBMIT_JS, anchor) if anchor else None
     if submit_sel:
-        page.click(submit_sel, timeout=15000)
+        try:
+            page.click(submit_sel, timeout=15000)
+        except Exception as e:
+            # Busy/disabled submit (site still processing): wait, then let
+            # the state evaluation below judge the outcome.
+            info["submitClickError"] = str(e)[:120]
+            page.wait_for_timeout(1800)
         info["submittedVia"] = submit_sel
     else:
         if anchor:
