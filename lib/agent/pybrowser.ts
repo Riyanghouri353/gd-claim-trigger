@@ -338,48 +338,103 @@ LOGIN_STATE_JS = r"""
 }
 """
 
+def dismiss_consent():
+    # Cookie/consent banners commonly overlay the form and swallow clicks.
+    for label in ["OK", "Accept", "Accept all", "Got it", "I agree", "Allow all"]:
+        try:
+            btn = page.get_by_role("button", name=label, exact=True)
+            if btn.count() > 0 and btn.first.is_visible():
+                btn.first.click(timeout=2500)
+                page.wait_for_timeout(400)
+                return True
+        except Exception:
+            pass
+    return False
+
+def fill_verified(selector, value):
+    # Playwright fill drives the native value setter; some controlled forms
+    # (React) only register key events. Fill, read back, and fall back to
+    # real typing when the value did not stick.
+    page.fill(selector, value, timeout=15000)
+    try:
+        got = page.input_value(selector, timeout=3000)
+    except Exception:
+        got = None
+    if got != value:
+        try:
+            page.click(selector, timeout=5000)
+            page.keyboard.press("Control+a")
+            page.keyboard.type(value, delay=20)
+            got = page.input_value(selector, timeout=3000)
+        except Exception:
+            pass
+    return got == value
+
 def do_login(args):
     username = args.get("username") or ""
     password = args.get("password") or ""
     start_url = page.url
     info = {"phase": 1, "urlBefore": start_url}
+    try:
+        info["consentDismissed"] = dismiss_consent()
+    except Exception:
+        pass
     find = page.evaluate(LOGIN_FIND_JS)
     used_pw_field = False
     if find.get("hasPassword"):
         if username and find.get("identitySelector"):
-            page.fill(find["identitySelector"], username, timeout=15000)
+            info["identityOk"] = fill_verified(find["identitySelector"], username)
             info["identitySelector"] = find["identitySelector"]
         page.fill(find["passwordSelector"], password, timeout=15000)
         info["passwordSelector"] = find["passwordSelector"]
         used_pw_field = True
     elif find.get("identitySelector") and username:
         # Two-step flow: identity first, then the password step appears.
-        page.fill(find["identitySelector"], username, timeout=15000)
+        info["identityOk"] = fill_verified(find["identitySelector"], username)
         info["identitySelector"] = find["identitySelector"]
         nxt = page.evaluate(LOGIN_SUBMIT_JS, find["identitySelector"])
         if nxt:
             page.click(nxt, timeout=15000)
+            info["advancedVia"] = nxt
         else:
             page.keyboard.press("Enter")
-        try:
-            page.wait_for_load_state("networkidle", timeout=6000)
-        except Exception:
-            pass
-        page.wait_for_timeout(700)
-        find2 = page.evaluate(LOGIN_FIND_JS)
-        if not find2.get("hasPassword"):
-            # The password step may render a beat after the identity step.
-            page.wait_for_timeout(1600)
+            info["advancedVia"] = "Enter"
+        # Poll for the password step / a locked identity / an error banner.
+        find2 = find
+        for _ in range(18):
+            try:
+                page.wait_for_load_state("networkidle", timeout=1200)
+            except Exception:
+                pass
+            page.wait_for_timeout(500)
             find2 = page.evaluate(LOGIN_FIND_JS)
+            if find2.get("hasPassword") or find2.get("identityLockedSelector"):
+                break
+            st = page.evaluate(LOGIN_STATE_JS)
+            if st.get("errorText"):
+                break
+        if not find2.get("hasPassword") and find2.get("identityLockedSelector"):
+            # Identity accepted and locked in; advance once more.
+            nxt2 = page.evaluate(LOGIN_SUBMIT_JS, find2["identityLockedSelector"])
+            if nxt2:
+                page.click(nxt2, timeout=15000)
+                info["advancedVia2"] = nxt2
+                for _ in range(12):
+                    page.wait_for_timeout(600)
+                    find2 = page.evaluate(LOGIN_FIND_JS)
+                    if find2.get("hasPassword"):
+                        break
         if find2.get("hasPassword"):
             info["phase"] = 2
             page.fill(find2["passwordSelector"], password, timeout=15000)
             info["passwordSelector"] = find2["passwordSelector"]
             used_pw_field = True
         else:
+            st2 = page.evaluate(LOGIN_STATE_JS)
+            diag = "identity filled ok: " + str(info.get("identityOk")) + "; advanced via: " + str(info.get("advancedVia")) + "; page error: " + str(st2.get("errorText"))
             res = {"ok": False, "url": page.url, "title": page.title(), "text": page_text(),
                    "value": info,
-                   "error": "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow)"}
+                   "error": "Two-step login: after submitting the identity step, no password field appeared (the site may want a code/OTP or a different flow). Diagnostics — " + diag}
             if snap():
                 res["shot"] = True
             return res
@@ -899,8 +954,11 @@ async function pyBrowserActionInner(
     url: res.url,
     title: res.title,
     text: res.text,
-    // Never echo a filled password back into the model's context.
-    value: usedPasswordToken ? "••••••••" : res.value,
+    // Never echo a filled password back into the model's context. The login
+    // action's value is a diagnostics object (selectors, phases, URLs) that
+    // never contains the secret itself, so it passes through unmasked —
+    // the model needs it to reason about two-step flows.
+    value: usedPasswordToken && action !== "login" ? "••••••••" : res.value,
     elements: res.elements,
     network: res.network,
     networkTotal: res.networkTotal,
