@@ -7,7 +7,7 @@ import { Wallet } from 'ethers';
 const require = createRequire(import.meta.url);
 let rec;
 try { rec = require('/tmp/rectest/recovery.js'); } catch { console.log('SKIP: /tmp/rectest/recovery.js missing — transpile first (see header)'); process.exit(0); }
-const { parseTemplate, candidateKey, deriveBatch, addressFromKeyHex } = rec;
+const { parseTemplate, candidateKey, deriveBatch, addressFromKeyHex, encodeAggregate3, decodeAggregate3 } = rec;
 
 let fails = 0;
 const eq = (a, b, msg) => { if (a !== b) { console.log('FAIL', msg, a, '!==', b); fails++; } };
@@ -35,6 +35,17 @@ eq(addressFromKeyHex('00'.repeat(31) + '01'), new Wallet('0x' + '00'.repeat(31) 
 const big = parseTemplate('ab'.repeat(30) + '????');
 const t0 = Date.now(); deriveBatch(big, 0n, 3000); const ms = Date.now() - t0;
 console.log(`derive suffix: ${Math.round(3000 / (ms / 1000))}/s`);
+
+// multicall codec: selector + a synthetic aggregate3 result round-trip
+const enc = encodeAggregate3(['0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002']);
+if (!enc.startsWith('0x82ad56cb')) { console.log('FAIL aggregate3 selector'); fails++; }
+const W = (n) => BigInt(n).toString(16).padStart(64, '0');
+// build a fake result: two (true, uint256) entries with balances 5 and 0
+const tail = (v) => W(1) + W(64) + W(32) + W(v);
+const fake = '0x' + W(32) + W(2) + W(64) + W(64 + 128) + tail(5) + tail(0);
+const dec = decodeAggregate3(fake, 2);
+eq(dec[0].toString(), '5', 'decode bal 0');
+eq(dec[1].toString(), '0', 'decode bal 1');
 
 console.log(fails === 0 ? 'ALL RECOVERY TESTS PASSED' : `${fails} FAILURES`);
 process.exit(fails ? 1 : 0);
