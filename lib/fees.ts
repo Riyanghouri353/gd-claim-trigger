@@ -30,19 +30,37 @@ interface GdResponse {
   [key: string]: unknown;
 }
 
-async function gd(action: 'status' | 'fundGas', extra: Record<string, string>): Promise<GdResponse> {
-  const res = await fetch(getGdClaimUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, chain: 'celo', ...extra }),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(90_000),
-  });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { httpStatus: res.status, ...data };
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/* Same retry policy as the runner: HTTP 5xx (incl. Supabase 546) and network
+ * errors are transient endpoint-side failures — retry twice before giving up. */
+const RETRY_DELAYS_MS = [15_000, 45_000];
+
+async function gd(action: 'status' | 'fundGas', extra: Record<string, string>): Promise<GdResponse> {
+  let last: GdResponse | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(getGdClaimUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, chain: 'celo', ...extra }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(90_000),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const out: GdResponse = { httpStatus: res.status, ...data };
+      if (res.status < 500 || attempt === RETRY_DELAYS_MS.length) return out;
+      last = out;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === RETRY_DELAYS_MS.length) throw e;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
+  if (last) return last;
+  throw lastErr ?? new Error('gd-claim request failed');
+}
 
 async function checkWallet(wallet: WalletConfig, threshold: number): Promise<FeeWalletResult> {
   const base = {

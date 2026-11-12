@@ -41,21 +41,52 @@ interface GdResponse {
   [key: string]: unknown;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/* Retry policy for the gd-claim endpoint (Nov 2026 failures):
+ * - HTTP 5xx (incl. Supabase 546 function errors) — endpoint-side, transient.
+ * - "gas fee cap is below the minimum base fee" — Celo base-fee spike at
+ *   broadcast time; the tx was never mined, entitlement untouched, so a
+ *   retry seconds later (when the fee settles) is safe.
+ * Retries: 2, at 15s and 45s. Status is read-only; claim re-checks
+ * entitlement server-side, so a retry can never double-claim. */
+const RETRY_DELAYS_MS = [15_000, 45_000];
+
+function isRetryableGd(httpStatus: number, errorText: string): boolean {
+  if (httpStatus >= 500) return true;
+  if (/gas fee cap is below the minimum base fee/i.test(errorText)) return true;
+  return false;
+}
+
 async function gdClaim(
   action: 'status' | 'claim' | 'fundGas',
   chain: string,
   extra: Record<string, string>,
 ): Promise<GdResponse> {
-  const res = await fetch(getGdClaimUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, chain, ...extra }),
-  });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { httpStatus: res.status, ...data };
+  let last: GdResponse | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(getGdClaimUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, chain, ...extra }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const out: GdResponse = { httpStatus: res.status, ...data };
+      if (!isRetryableGd(res.status, String(data.error ?? '')) || attempt === RETRY_DELAYS_MS.length) {
+        return out;
+      }
+      last = out;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === RETRY_DELAYS_MS.length) throw e;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
+  if (last) return last;
+  throw lastErr ?? new Error('gd-claim request failed');
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function runChain(wallet: WalletConfig, chain: string): Promise<ChainResult> {
   const pk = wallet.privateKey;
