@@ -1,19 +1,29 @@
 // Email alerts for run crashes and claim failures, sent via Resend.
 // From: riyan@ghouri.site (verified domain) → To: riyanghouri7@gmail.com (override via ALERT_EMAIL).
 // Alerts must never break a run: every send is wrapped in try/catch by callers.
+//
+// Throttling (fixed Nov 2026 — the old 12h in-memory cooldown silently
+// swallowed the Nov 12 18:00 and 22:00 failure emails):
+// - Identical failure sets re-alert at most every 12h (cooldown).
+// - Every 3rd consecutive failing run ESCALATES immediately ("still failing").
+// - A once-daily digest fires while failures persist with no other alert.
+// - A NEW whitelist loss (blocked wallet x chain) always alerts at once.
+// - State persists in Supabase (alert_state) so deploys/restarts can't
+//   reset the cooldown or the consecutive-failure counter. Memory fallback
+//   keeps alerting working if the table is unreachable.
 
 import type { FeeCheckResult } from './fees';
+import type { GasCheckResult } from './gas';
+import { gasShortages } from './gas';
 import type { WalletResult } from './runner';
+import { supaGet, supaPatch } from './supa';
 
 const RESEND_API = 'https://api.resend.com/emails';
 const DASHBOARD_URL = 'https://gd-claim.ghouri.site/#/logs';
 
-// Cooldown so a recurring failure (e.g. the same wallet short on gas every run)
-// doesn't email 3x a day: identical failure sets re-alert at most every 12h.
-// Crashes always alert immediately.
 const FAILURE_COOLDOWN_MS = 12 * 3600_000;
-let lastFailureSig = '';
-let lastFailureAlertAt = 0;
+const DIGEST_INTERVAL_MS = 24 * 3600_000;
+const ESCALATE_EVERY_RUNS = 3;
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace";
@@ -50,12 +60,103 @@ async function sendEmail(subject: string, html: string, text: string): Promise<v
       html,
       text,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Resend API ${res.status}: ${body.slice(0, 200)}`);
   }
   console.log('alerts: email sent —', subject);
+}
+
+/* ---------- failure classification + persistent alert state ---------- */
+
+/** Coarse error class so a CHANGED failure reason re-alerts even when the
+ *  failing wallet x chain set is identical (old signature ignored the reason). */
+export function classifyFailure(message: string): string {
+  const m = message || '';
+  if (/circuit open/i.test(m)) return 'circuit';
+  if (/gas fee cap is below the minimum base fee/i.test(m)) return 'gas-fee-cap';
+  if (/HTTP (5\d\d|546)\b|546\b/i.test(m)) return 'endpoint-5xx';
+  if (/insufficient .* for gas|gas still insufficient/i.test(m)) return 'insufficient-gas';
+  if (/faucet/i.test(m)) return 'faucet';
+  if (/timeout|timed out|abort/i.test(m)) return 'timeout';
+  return 'other';
+}
+
+export function failureSignature(results: WalletResult[]): string {
+  return results
+    .flatMap((w) =>
+      w.chains
+        .filter((c) => c.status === 'failed')
+        .map((c) => `${w.label}:${c.chain}:${classifyFailure(c.message ?? '')}`),
+    )
+    .sort()
+    .join('|');
+}
+
+export function blockedSignature(results: WalletResult[]): string {
+  return results
+    .flatMap((w) => w.chains.filter((c) => c.status === 'blocked').map((c) => `${w.label}:${c.chain}`))
+    .sort()
+    .join('|');
+}
+
+interface AlertState {
+  sig: string;
+  alertedAt: number;
+  consecutiveFailedRuns: number;
+  lastDigestAt: number;
+  blockedSig: string;
+}
+
+const memoryState: AlertState = {
+  sig: '',
+  alertedAt: 0,
+  consecutiveFailedRuns: 0,
+  lastDigestAt: 0,
+  blockedSig: '',
+};
+
+async function loadAlertState(): Promise<AlertState> {
+  try {
+    const rows = await supaGet<
+      { sig: string; alerted_at: string | null; consecutive_failed_runs: number; last_digest_at: string | null; blocked_sig: string }[]
+    >('alert_state?select=sig,alerted_at,consecutive_failed_runs,last_digest_at,blocked_sig&id=eq.failures');
+    const r = rows?.[0];
+    if (r) {
+      return {
+        sig: r.sig ?? '',
+        alertedAt: r.alerted_at ? new Date(r.alerted_at).getTime() : 0,
+        consecutiveFailedRuns: r.consecutive_failed_runs ?? 0,
+        lastDigestAt: r.last_digest_at ? new Date(r.last_digest_at).getTime() : 0,
+        blockedSig: r.blocked_sig ?? '',
+      };
+    }
+  } catch (e) {
+    console.error('alerts: state read failed, using memory:', e instanceof Error ? e.message : e);
+  }
+  return { ...memoryState };
+}
+
+async function saveAlertState(next: AlertState): Promise<void> {
+  Object.assign(memoryState, next);
+  try {
+    await supaPatch(
+      'alert_state',
+      'id=eq.failures',
+      {
+        sig: next.sig,
+        alerted_at: next.alertedAt ? new Date(next.alertedAt).toISOString() : null,
+        consecutive_failed_runs: next.consecutiveFailedRuns,
+        last_digest_at: next.lastDigestAt ? new Date(next.lastDigestAt).toISOString() : null,
+        blocked_sig: next.blockedSig,
+        updated_at: new Date().toISOString(),
+      },
+    );
+  } catch (e) {
+    console.error('alerts: state persist failed, memory kept:', e instanceof Error ? e.message : e);
+  }
 }
 
 /* ---------- shared layout ---------- */
@@ -83,27 +184,32 @@ G$ Claim Runner &middot; automated alerts &middot; gd-claim.ghouri.site
 </body></html>`;
 }
 
-function statCard(n: number, label: string, color: string): string {
-  return `<td width="33%" align="center" style="background:#f8fafc;border-radius:14px;padding:18px 8px;">
+function statCard(n: number, label: string, color: string, width: string): string {
+  return `<td width="${width}" align="center" style="background:#f8fafc;border-radius:14px;padding:18px 8px;">
 <div style="font-family:${FONT};font-size:30px;font-weight:800;color:${color};line-height:1;">${n}</div>
 <div style="font-family:${FONT};font-size:11px;font-weight:700;letter-spacing:1.5px;color:#64748b;margin-top:9px;">${label}</div>
 </td>`;
 }
 
-function statsRow(claimed: number, skipped: number, failed: number): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-${statCard(claimed, 'CLAIMED', '#16a34a')}<td width="10" style="font-size:0;">&nbsp;</td>
-${statCard(skipped, 'SKIPPED', '#64748b')}<td width="10" style="font-size:0;">&nbsp;</td>
-${statCard(failed, 'FAILED', '#dc2626')}
-</tr></table>`;
+function statsRow(claimed: number, skipped: number, failed: number, blocked: number): string {
+  const cells = [
+    statCard(claimed, 'CLAIMED', '#16a34a', '25%'),
+    statCard(skipped, 'SKIPPED', '#64748b', '25%'),
+    statCard(failed, 'FAILED', '#dc2626', '25%'),
+    statCard(blocked, 'BLOCKED', '#d97706', '25%'),
+  ];
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${cells.join('<td width="8" style="font-size:0;">&nbsp;</td>')}</tr></table>`;
 }
 
 function sectionLabel(text: string): string {
   return `<div style="font-family:${FONT};font-size:12px;font-weight:800;letter-spacing:2px;color:#0f172a;margin:24px 0 12px;">${text}</div>`;
 }
 
-function failureTable(failures: { wallet: string; chain: string; message: string }[]): string {
-  const rows = failures
+function issueTable(
+  title: string,
+  rows_: { wallet: string; chain: string; message: string }[],
+): string {
+  const rows = rows_
     .map(
       (f, i) => `<tr>
 <td style="padding:14px 16px;font-family:${FONT};font-size:14px;font-weight:700;color:#0f172a;${i % 2 ? 'background:#f8fafc;' : ''}">${esc(f.wallet)}</td>
@@ -112,7 +218,7 @@ function failureTable(failures: { wallet: string; chain: string; message: string
 </tr>`,
     )
     .join('');
-  return `${sectionLabel('WHAT FAILED')}
+  return `${sectionLabel(title)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
 <tr>
 <td style="background:#0b1220;color:#ffffff;font-family:${FONT};font-size:11px;font-weight:800;letter-spacing:1.5px;padding:13px 16px;">WALLET</td>
@@ -137,6 +243,14 @@ function feePill(fee: FeeCheckResult | null): string {
 &#128737;&nbsp;&nbsp;${esc(feeLine(fee))}</td></tr></table>`;
 }
 
+function gasPill(gas: GasCheckResult | null): string {
+  const shortages = gasShortages(gas);
+  if (shortages.length === 0) return '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+<tr><td style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:14px 18px;font-family:${FONT};font-size:13.5px;font-weight:600;color:#92400e;line-height:1.5;">
+&#9981;&nbsp;&nbsp;Gas monitor — low on gas: ${esc(shortages.join(' · '))}. FUSE/XDC need a manual top-up; the faucet funds CELO only.</td></tr></table>`;
+}
+
 /* ---------- builders (exported for preview/testing) ---------- */
 
 export interface RunAlertInput {
@@ -144,9 +258,12 @@ export interface RunAlertInput {
   startedAt: string;
   finishedAt: string;
   results: WalletResult[];
-  summary: { claimed: number; skipped: number; failed: number };
+  summary: { claimed: number; skipped: number; failed: number; blocked: number };
   fee: FeeCheckResult | null;
+  gas?: GasCheckResult | null;
 }
+
+export type AlertKind = 'failure' | 'escalation' | 'digest';
 
 export function buildCrashEmail(
   slotLabel: string,
@@ -158,11 +275,11 @@ export function buildCrashEmail(
   const text =
     `G$ Claim Runner — run crashed\n\n` +
     `Slot: ${slotLabel}\nStarted: ${when}\nError: ${error}\n\n` +
-    `The slot was NOT marked complete, so the next wake tick will retry it.\n` +
+    `The slot was NOT marked complete, so a later tick will retry it.\n` +
     `Dashboard: ${DASHBOARD_URL}`;
   const body =
     `<div style="background:#0b1220;border-radius:14px;padding:18px 20px;font-family:${MONO};font-size:13px;line-height:1.6;color:#fca5a5;white-space:pre-wrap;word-break:break-word;">${esc(error).slice(0, 1000)}</div>` +
-    `<p style="font-family:${FONT};font-size:14px;color:#475569;line-height:1.65;margin:18px 0 0;">The slot was <b>not</b> marked complete, so the next wake tick will retry it automatically.</p>`;
+    `<p style="font-family:${FONT};font-size:14px;color:#475569;line-height:1.65;margin:18px 0 0;">The slot was <b>not</b> marked complete, so a later tick will retry it automatically.</p>`;
   const html = shell({
     eyebrow: 'G$ CLAIM RUNNER &middot; CRITICAL',
     title: 'Claim run crashed',
@@ -172,13 +289,17 @@ export function buildCrashEmail(
   return { subject, html, text };
 }
 
-export function buildFailureEmail(input: RunAlertInput): { subject: string; html: string; text: string } {
+export function buildFailureEmail(
+  input: RunAlertInput,
+  opts: { kind?: AlertKind; consecutive?: number } = {},
+): { subject: string; html: string; text: string } {
+  const kind = opts.kind ?? 'failure';
   const failures: { wallet: string; chain: string; message: string }[] = [];
+  const blocked: { wallet: string; chain: string; message: string }[] = [];
   for (const w of input.results) {
     for (const c of w.chains) {
-      if (c.status === 'failed') {
-        failures.push({ wallet: w.label, chain: c.chain, message: c.message ?? 'failed' });
-      }
+      if (c.status === 'failed') failures.push({ wallet: w.label, chain: c.chain, message: c.message ?? 'failed' });
+      if (c.status === 'blocked') blocked.push({ wallet: w.label, chain: c.chain, message: c.message ?? 'blocked' });
     }
   }
   const when = input.startedAt.replace('T', ' ').slice(0, 19) + ' UTC';
@@ -187,21 +308,42 @@ export function buildFailureEmail(input: RunAlertInput): { subject: string; html
     Math.round((new Date(input.finishedAt).getTime() - new Date(input.startedAt).getTime()) / 1000),
   );
   const n = failures.length;
-  const subject = `[G$ Runner] ${n} claim${n === 1 ? '' : 's'} failed — ${input.slotLabel}`;
+  const subject =
+    kind === 'escalation'
+      ? `[G$ Runner] STILL FAILING (${opts.consecutive ?? 3} runs in a row) — ${input.slotLabel}`
+      : kind === 'digest'
+        ? `[G$ Runner] Daily digest: failures persist — ${input.slotLabel}`
+        : `[G$ Runner] ${n} claim${n === 1 ? '' : 's'} failed${blocked.length > 0 ? `, ${blocked.length} blocked` : ''} — ${input.slotLabel}`;
+  const title =
+    kind === 'escalation'
+      ? `Still failing after ${opts.consecutive ?? 3} runs`
+      : kind === 'digest'
+        ? 'Failures persist — daily digest'
+        : `${n} claim${n === 1 ? '' : 's'} failed`;
+  const shortages = gasShortages(input.gas ?? null);
   const text =
     `G$ Claim Runner — run completed with failures\n\n` +
     `Slot: ${input.slotLabel}\nStarted: ${when} (${dur}s)\n` +
-    `Result: ${input.summary.claimed} claimed, ${input.summary.skipped} skipped, ${input.summary.failed} failed\n` +
-    `${feeLine(input.fee)}\n\nFailures:\n` +
-    failures.map((f) => `- ${f.wallet} [${f.chain}]: ${f.message}`.slice(0, 300)).join('\n') +
+    `Result: ${input.summary.claimed} claimed, ${input.summary.skipped} skipped, ${input.summary.failed} failed, ${input.summary.blocked} blocked\n` +
+    `${feeLine(input.fee)}\n` +
+    (shortages.length > 0 ? `Gas shortages: ${shortages.join(' · ')}\n` : '') +
+    (failures.length > 0
+      ? `\nFailures:\n` + failures.map((f) => `- ${f.wallet} [${f.chain}]: ${f.message}`.slice(0, 300)).join('\n')
+      : '') +
+    (blocked.length > 0
+      ? `\n\nBlocked (GoodID verification lost — re-verify in the GoodDollar app):\n` +
+        blocked.map((f) => `- ${f.wallet} [${f.chain}]: ${f.message}`.slice(0, 300)).join('\n')
+      : '') +
     `\n\nDashboard: ${DASHBOARD_URL}`;
   const body =
-    statsRow(input.summary.claimed, input.summary.skipped, input.summary.failed) +
-    failureTable(failures) +
-    feePill(input.fee);
+    statsRow(input.summary.claimed, input.summary.skipped, input.summary.failed, input.summary.blocked) +
+    (failures.length > 0 ? issueTable('WHAT FAILED', failures) : '') +
+    (blocked.length > 0 ? issueTable('BLOCKED — VERIFICATION NEEDED', blocked) : '') +
+    feePill(input.fee) +
+    gasPill(input.gas ?? null);
   const html = shell({
     eyebrow: 'G$ CLAIM RUNNER &middot; ACTION NEEDED',
-    title: `${n} claim${n === 1 ? '' : 's'} failed`,
+    title,
     meta: `${esc(input.slotLabel)} &middot; Started ${esc(when)} &middot; finished in ${dur}s`,
     body,
   });
@@ -214,24 +356,51 @@ export async function alertRunCrashed(slotLabel: string, startedAt: string, erro
   await sendEmail(subject, html, text);
 }
 
-/** A run completed but with claim failures. Alerts unless the identical failure set already alerted within the cooldown. */
+/**
+ * A run completed with failures and/or blocked chains. Sends unless the
+ * identical failure set already alerted within the cooldown — except
+ * escalations (every 3rd consecutive failing run), the daily digest, and
+ * newly blocked wallets, which always break through the cooldown.
+ */
 export async function maybeAlertRunFailures(input: RunAlertInput): Promise<void> {
-  let failed = 0;
-  for (const w of input.results) for (const c of w.chains) if (c.status === 'failed') failed++;
-  if (failed === 0) return;
-
-  const sig = input.results
-    .flatMap((w) => w.chains.filter((c) => c.status === 'failed').map((c) => `${w.label}:${c.chain}`))
-    .sort()
-    .join('|');
+  const state = await loadAlertState();
   const now = Date.now();
-  if (sig === lastFailureSig && now - lastFailureAlertAt < FAILURE_COOLDOWN_MS) {
+  const failed = input.summary.failed;
+  const blocked = input.summary.blocked;
+
+  if (failed === 0 && blocked === 0) {
+    if (state.consecutiveFailedRuns !== 0) {
+      await saveAlertState({ ...state, consecutiveFailedRuns: 0 });
+    }
+    return;
+  }
+
+  const sig = failureSignature(input.results);
+  const bSig = blockedSignature(input.results);
+  const consecutive = state.consecutiveFailedRuns + 1;
+  const newBlocked = bSig !== '' && bSig !== state.blockedSig;
+  const sigChanged = sig !== state.sig;
+  const cooldownExpired = now - state.alertedAt >= FAILURE_COOLDOWN_MS;
+  const digestDue = now - state.lastDigestAt >= DIGEST_INTERVAL_MS;
+
+  let kind: AlertKind | null = null;
+  if (newBlocked || sigChanged || cooldownExpired) kind = 'failure';
+  else if (consecutive % ESCALATE_EVERY_RUNS === 0) kind = 'escalation';
+  else if (digestDue) kind = 'digest';
+
+  const next: AlertState = {
+    sig: failed > 0 ? sig : state.sig,
+    alertedAt: kind ? now : state.alertedAt,
+    consecutiveFailedRuns: consecutive,
+    lastDigestAt: kind === 'digest' ? now : state.lastDigestAt,
+    blockedSig: bSig,
+  };
+  await saveAlertState(next);
+
+  if (!kind) {
     console.log('alerts: skipping duplicate failure alert (cooldown)');
     return;
   }
-  lastFailureSig = sig;
-  lastFailureAlertAt = now;
-
-  const { subject, html, text } = buildFailureEmail(input);
+  const { subject, html, text } = buildFailureEmail(input, { kind, consecutive });
   await sendEmail(subject, html, text);
 }

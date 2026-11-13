@@ -39,6 +39,12 @@ export default function Overview({
   onCheckFees: () => void;
 }) {
   const last = s.lastRun;
+  const shortages = (s.gasCheck?.wallets ?? []).flatMap((w) =>
+    w.chains.filter((c) => c.low).map((c) => `${w.label} ${c.symbol}`),
+  );
+  const blockedNow = (s.lastRun?.wallets ?? []).flatMap((w) =>
+    w.chains.filter((c) => c.status === 'blocked').map((c) => `${w.label} (${c.chain})`),
+  );
   return (
     <div className="section">
       <header className="pagehead">
@@ -48,6 +54,24 @@ export default function Overview({
         </div>
         <UtcClock />
       </header>
+
+      {shortages.length > 0 && (
+        <Card title="⚠ Low gas" className="alertcard">
+          <p className="muted small">
+            {shortages.join(' · ')} — claims on those chains will fail until topped up manually. See{' '}
+            <a href="#/fees">Fee Guard</a> for balances. The faucet funds CELO only.
+          </p>
+        </Card>
+      )}
+
+      {blockedNow.length > 0 && (
+        <Card title="⊘ Verification needed" className="alertcard">
+          <p className="muted small">
+            {blockedNow.join(' · ')} — GoodDollar reports these as not verified, so their claims are blocked
+            (not just skipped). Re-verify GoodID in the GoodDollar app.
+          </p>
+        </Card>
+      )}
 
       <div className="grid4">
         <Stat label="System status" accent={s.running}>
@@ -119,6 +143,7 @@ export default function Overview({
             <Pill tone="ok">✓ {last.summary.claimed} claimed</Pill>
             <Pill tone="warn">– {last.summary.skipped} skipped</Pill>
             <Pill tone={last.summary.failed > 0 ? 'error' : 'muted'}>✗ {last.summary.failed} failed</Pill>
+            <Pill tone={last.summary.blocked > 0 ? 'warn' : 'muted'}>⊘ {last.summary.blocked} blocked</Pill>
             <span className="muted small">
               {fmtShort(last.finishedAt)} UTC · see <a href="#/logs">Logs</a> for details
             </span>
@@ -137,7 +162,7 @@ export default function Overview({
             Keep-alive <code>/api/wake</code> <span className="muted">— hit every 10 min (cron-job.org)</span>
           </li>
           <li>
-            Health <a href="/api/wake"><code>/api/wake</code></a> <span className="muted">— live JSON</span>
+            Health <a href="/api/health"><code>/api/health</code></a> <span className="muted">— live JSON, no run triggered</span>
           </li>
         </ul>
       </details>

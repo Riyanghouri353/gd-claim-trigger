@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export interface ChainResult {
   chain: string;
-  status: 'claimed' | 'skipped' | 'failed';
+  status: 'claimed' | 'skipped' | 'failed' | 'blocked';
   amount?: string;
   txHash?: string;
   explorerUrl?: string;
@@ -20,7 +20,7 @@ export interface RunResult {
   startedAt: string;
   finishedAt: string;
   wallets: { label: string; chains: ChainResult[] }[];
-  summary: { claimed: number; skipped: number; failed: number };
+  summary: { claimed: number; skipped: number; failed: number; blocked: number };
 }
 
 export interface FeeWallet {
@@ -45,6 +45,47 @@ export interface VaultWallet {
   address: string | null;
 }
 
+export interface GasChainStatus {
+  chain: string;
+  symbol: string;
+  balance: number | null;
+  threshold: number;
+  low: boolean;
+  error?: string;
+}
+
+export interface GasWalletStatus {
+  label: string;
+  address: string | null;
+  chains: GasChainStatus[];
+}
+
+export interface GasCheck {
+  checkedAt: string;
+  thresholds: Record<string, number>;
+  wallets: GasWalletStatus[];
+}
+
+export interface SlotState {
+  key: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  completedAt: string | null;
+  lastClaimed: number;
+  lastSkipped: number;
+  lastFailed: number;
+  lastBlocked: number;
+}
+
+export interface HistoryRun {
+  id?: string;
+  startedAt: string;
+  finishedAt: string;
+  slotLabel: string;
+  wallets: { label: string; chains: ChainResult[] }[];
+  summary: { claimed: number; skipped: number; failed: number; blocked: number };
+}
+
 export interface Status {
   ok: boolean;
   time: string;
@@ -60,6 +101,11 @@ export interface Status {
   lastRun: RunResult | null;
   feeThreshold: number;
   feeCheck: FeeCheck | null;
+  gasThresholds?: Record<string, number>;
+  gasCheck?: GasCheck | null;
+  slotStates?: SlotState[];
+  adminConfigured?: boolean;
+  isAdmin?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -179,8 +225,8 @@ export function ChainBadge({ chain }: { chain: string }) {
 }
 
 export function StatusPill({ status }: { status: ChainResult['status'] }) {
-  const map = { claimed: 'ok', skipped: 'warn', failed: 'error' } as const;
-  const label = { claimed: 'Claimed', skipped: 'Skipped', failed: 'Failed' }[status];
+  const map = { claimed: 'ok', skipped: 'warn', failed: 'error', blocked: 'warn' } as const;
+  const label = { claimed: 'Claimed', skipped: 'Skipped', failed: 'Failed', blocked: 'Blocked' }[status];
   return <Pill tone={map[status]}>{label}</Pill>;
 }
 
@@ -309,23 +355,26 @@ export function SegmentedBar({
   claimed,
   skipped,
   failed,
+  blocked = 0,
 }: {
   claimed: number;
   skipped: number;
   failed: number;
+  blocked?: number;
 }) {
-  const total = claimed + skipped + failed;
+  const total = claimed + skipped + failed + blocked;
   if (total === 0) return null;
   const pct = (n: number) => `${Math.max(n / total, 0.02) * 100}%`;
   return (
     <div
       className="segbar"
       role="img"
-      aria-label={`${claimed} claimed, ${skipped} skipped, ${failed} failed`}
+      aria-label={`${claimed} claimed, ${skipped} skipped, ${failed} failed, ${blocked} blocked`}
     >
       {claimed > 0 && <span className="seg seg-claimed" style={{ width: pct(claimed) }} />}
       {skipped > 0 && <span className="seg seg-skipped" style={{ width: pct(skipped) }} />}
       {failed > 0 && <span className="seg seg-failed" style={{ width: pct(failed) }} />}
+      {blocked > 0 && <span className="seg seg-blocked" style={{ width: pct(blocked) }} />}
     </div>
   );
 }

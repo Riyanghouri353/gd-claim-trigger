@@ -20,6 +20,24 @@ interface WalletBal {
   chains: ChainBal[];
 }
 
+interface DeletedWallet {
+  id: string;
+  label: string;
+  chains: string[];
+  keyOk: boolean;
+  address: string | null;
+  deletedAt: string | null;
+}
+
+interface AuditEntry {
+  id?: string;
+  createdAt: string;
+  action: string;
+  walletId: string | null;
+  walletLabel: string | null;
+  detail: string | null;
+}
+
 function shortAddr(a: string): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
@@ -136,8 +154,38 @@ export default function Vault(props: {
   wError: string;
   onAdd: () => void;
   onRemove: (id: string, label: string) => void;
+  onRestore: (id: string, label: string) => void;
+  onBackup: () => void;
 }) {
   const { status: s } = props;
+
+  /* ---- removed wallets + audit trail (admin only) ---- */
+  const [deleted, setDeleted] = useState<DeletedWallet[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const loadDeleted = useCallback(async () => {
+    try {
+      const res = await fetch('/api/wallets?deleted=1', { cache: 'no-store' });
+      if (!res.ok) {
+        setDeleted([]);
+        setAudit([]);
+        return;
+      }
+      const data = await res.json();
+      setDeleted(data.deleted ?? []);
+      setAudit(data.audit ?? []);
+    } catch {
+      setDeleted([]);
+      setAudit([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (s.isAdmin) loadDeleted();
+    else {
+      setDeleted([]);
+      setAudit([]);
+    }
+  }, [s.isAdmin, s.walletsConfigured, loadDeleted]);
 
   /* ---- live balances (all wallets × chains in parallel, server-side) ---- */
   const [bals, setBals] = useState<WalletBal[] | null>(null);
@@ -205,6 +253,15 @@ export default function Vault(props: {
             title="Refresh live balances"
           >
             {bLoading ? '⟳ Loading…' : '⟳ Refresh balances'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={props.onBackup}
+            disabled={!s.dbConfigured || !!s.dbError}
+            title="Download encrypted vault backup (ciphertext only — needs PROJECT_KEY to restore)"
+          >
+            ⬇ Backup (encrypted)
           </button>
           <button type="button" className="btn primary" onClick={props.onOpen} disabled={!s.dbConfigured || !!s.dbError}>
             + Add wallet
@@ -314,6 +371,41 @@ export default function Vault(props: {
         <p className="muted small" role="status">
           {props.wMsg}
         </p>
+      )}
+
+      {s.isAdmin && (deleted.length > 0 || audit.length > 0) && (
+        <Card title="Removed wallets & audit trail">
+          {deleted.length === 0 ? (
+            <p className="muted small">No removed wallets — removals stay recoverable here.</p>
+          ) : (
+            <ul className="vaultlist">
+              {deleted.map((w) => (
+                <li key={w.id} className="vaultrow">
+                  <div className="vaultmain">
+                    <span className="vaultname">{w.label}</span>
+                    {w.address && <span className="vaultaddr muted">{shortAddr(w.address)}</span>}
+                    <span className="muted small">removed {w.deletedAt ? fmtAgo(w.deletedAt) : ''}</span>
+                  </div>
+                  <div className="vaultside">
+                    <button type="button" className="btn" onClick={() => props.onRestore(w.id, w.label)}>
+                      ↩ Restore
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {audit.length > 0 && (
+            <ul className="muted small" style={{ marginTop: 14 }}>
+              {audit.map((a, i) => (
+                <li key={a.id ?? i}>
+                  {fmtAgo(a.createdAt)} · <strong>{a.action}</strong> {a.walletLabel ? `· ${a.walletLabel}` : ''}{' '}
+                  {a.detail ? `· ${a.detail}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       )}
 
       {props.vaultOpen && (

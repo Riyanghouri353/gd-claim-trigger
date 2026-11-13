@@ -1,7 +1,11 @@
 // Live balance lookups (native + G$) via public JSON-RPC.
 // No private keys needed — addresses come from the claim_wallets.address column.
-// EVERYTHING runs in parallel: all wallets × all chains × both RPC calls,
-// with per-chain RPC fallback (each RPC tried in order until one answers).
+// Fan-out is bounded (pMap, 8 in flight): the old unbounded burst tripped
+// public RPC rate limits (XDC reads failing with HTTP 502 under load).
+// Per-chain RPC fallback: each RPC tried in order until one answers, with
+// one delayed retry of the primary when the failure looks like rate limiting.
+
+import { pMap, sleep } from './limits';
 
 export interface ChainBalance {
   chain: string;
@@ -40,7 +44,9 @@ export const BALANCE_CHAINS: Record<string, ChainCfg> = {
   },
   xdc: {
     nativeSymbol: 'XDC',
-    rpcs: ['https://rpc.ankr.com/xdc', 'https://erpc.xdcrpc.com', 'https://rpc.xdc.org'],
+    // Verified Nov 2026: only Ankr answers reliably; erpc.xdcrpc.com is
+    // intermittently rate-limited; rpc.xdc.org is dead (HTTP 502) — removed.
+    rpcs: ['https://rpc.ankr.com/xdc', 'https://erpc.xdcrpc.com'],
     gdAddress: '0xEC2136843a983885AebF2feB3931F73A8eBEe50c',
     gdDecimals: 18,
   },
@@ -73,12 +79,21 @@ async function rpcCall(rpcUrl: string, method: string, params: unknown[]): Promi
   }
 }
 
-/** Try each RPC in order until one answers. */
+/** Try each RPC in order until one answers; one delayed retry of the first
+ *  RPC when every attempt failed with a rate-limit / gateway error. */
 async function rpcWithFallback(rpcs: string[], method: string, params: unknown[]): Promise<string> {
   let lastErr = 'all RPCs failed';
   for (const url of rpcs) {
     try {
       return await rpcCall(url, method, params);
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  if (/rate limit|429|502|503|too many requests/i.test(lastErr) && rpcs.length > 0) {
+    await sleep(5_000);
+    try {
+      return await rpcCall(rpcs[0], method, params);
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
     }
@@ -124,16 +139,21 @@ export async function getChainBalance(address: string, chain: string): Promise<C
   }
 }
 
-/** All wallets × all chains concurrently — no concurrency limit. */
+const BALANCE_CONCURRENCY = 8;
+
+/** All wallets × all chains with a bounded pool — one slow chain can't
+ *  block the rest, and the burst stays under RPC rate limits. */
 export async function getWalletBalances(
   wallets: { id: string; label: string; address: string; chains: string[] }[],
 ): Promise<WalletBalances[]> {
-  return Promise.all(
-    wallets.map(async (w) => ({
-      id: w.id,
-      label: w.label,
-      address: w.address,
-      chains: await Promise.all(w.chains.map((c) => getChainBalance(w.address, c))),
-    })),
-  );
+  const tasks = wallets.flatMap((w) => w.chains.map((chain) => ({ wallet: w, chain })));
+  const results = await pMap(tasks, (t) => getChainBalance(t.wallet.address, t.chain), BALANCE_CONCURRENCY);
+  const byId = new Map<string, WalletBalances>();
+  for (const w of wallets) {
+    byId.set(w.id, { id: w.id, label: w.label, address: w.address, chains: [] });
+  }
+  tasks.forEach((t, i) => {
+    byId.get(t.wallet.id)?.chains.push(results[i]);
+  });
+  return wallets.map((w) => byId.get(w.id) as WalletBalances);
 }

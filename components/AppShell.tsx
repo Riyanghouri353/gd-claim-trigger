@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Spinner, useStatus } from './ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Spinner, useStatus } from './ui';
 import Overview from './sections/Overview';
 import Vault from './sections/Vault';
 import FeeGuard from './sections/FeeGuard';
@@ -53,7 +53,58 @@ export default function AppShell() {
     setTab(id);
   }, []);
 
-  /* ---- manual run (POST /api/trigger — unchanged) ---- */
+  /* ---- admin login (destructive actions only; reads stay open) ---- */
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminPw, setAdminPw] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [adminBusy, setAdminBusy] = useState(false);
+  const pendingAction = useRef<(() => void) | null>(null);
+
+  const openAdminLogin = useCallback((retry: () => void) => {
+    pendingAction.current = retry;
+    setAdminError('');
+    setAdminPw('');
+    setAdminOpen(true);
+  }, []);
+
+  const submitAdminLogin = useCallback(async () => {
+    setAdminBusy(true);
+    setAdminError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPw }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAdminError(data.error || 'Login failed');
+        return;
+      }
+      setAdminOpen(false);
+      setAdminPw('');
+      reload();
+      const retry = pendingAction.current;
+      pendingAction.current = null;
+      if (retry) retry();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'request failed');
+    } finally {
+      setAdminBusy(false);
+    }
+  }, [adminPw, reload]);
+
+  const logoutAdmin = useCallback(async () => {
+    try {
+      await fetch('/api/auth', { method: 'DELETE' });
+    } catch {
+      /* ignore */
+    } finally {
+      reload();
+    }
+  }, [reload]);
+
+  /* ---- manual run (POST /api/trigger — admin-only) ---- */
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const manualTrigger = useCallback(async () => {
@@ -62,6 +113,10 @@ export default function AppShell() {
     setMsg('');
     try {
       const res = await fetch('/api/trigger', { method: 'POST' });
+      if (res.status === 401) {
+        openAdminLogin(() => manualTrigger());
+        return;
+      }
       const data = await res.json();
       setMsg(
         data.ok ? 'Run started — results appear in Logs as chains complete.' : `Could not start: ${data.error}`,
@@ -72,9 +127,9 @@ export default function AppShell() {
       setBusy(false);
       reload();
     }
-  }, [reload]);
+  }, [reload, openAdminLogin]);
 
-  /* ---- fee check (POST /api/fees — unchanged) ---- */
+  /* ---- fee check (POST /api/fees — admin-only) ---- */
   const [fBusy, setFBusy] = useState(false);
   const [fMsg, setFMsg] = useState('');
   const checkFeesNow = useCallback(async () => {
@@ -82,6 +137,10 @@ export default function AppShell() {
     setFBusy(true);
     try {
       const res = await fetch('/api/fees', { method: 'POST' });
+      if (res.status === 401) {
+        openAdminLogin(() => checkFeesNow());
+        return;
+      }
       const data = await res.json();
       setFMsg(
         data.ok
@@ -94,9 +153,9 @@ export default function AppShell() {
       setFBusy(false);
       reload();
     }
-  }, [reload]);
+  }, [reload, openAdminLogin]);
 
-  /* ---- vault (POST/DELETE /api/wallets — unchanged payloads) ---- */
+  /* ---- vault (POST/DELETE /api/wallets — admin-only) ---- */
   const [vaultOpen, setVaultOpen] = useState(false);
   const [wLabel, setWLabel] = useState('');
   const [wKey, setWKey] = useState('');
@@ -141,6 +200,10 @@ export default function AppShell() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: wLabel.trim(), privateKey: wKey.trim(), chains: wChains }),
       });
+      if (res.status === 401) {
+        openAdminLogin(() => addWallet());
+        return;
+      }
       const data = await res.json();
       if (data.ok) {
         setVaultOpen(false);
@@ -154,17 +217,21 @@ export default function AppShell() {
       setWBusy(false);
       reload();
     }
-  }, [wLabel, wKey, wChains, reload, resetVaultForm]);
+  }, [wLabel, wKey, wChains, reload, resetVaultForm, openAdminLogin]);
 
   const removeWallet = useCallback(
     async (id: string, label: string) => {
-      if (!window.confirm(`Remove "${label}" from the vault?`)) return;
+      if (!window.confirm(`Remove "${label}" from the vault? It stays recoverable via Restore.`)) return;
       try {
         const res = await fetch('/api/wallets', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id }),
         });
+        if (res.status === 401) {
+          openAdminLogin(() => removeWallet(id, label));
+          return;
+        }
         const data = await res.json();
         if (!data.ok) window.alert(`Could not remove: ${data.error || 'failed'}`);
       } catch (e) {
@@ -173,8 +240,58 @@ export default function AppShell() {
         reload();
       }
     },
-    [reload],
+    [reload, openAdminLogin],
   );
+
+  const restoreWallet = useCallback(
+    async (id: string, label: string) => {
+      if (!window.confirm(`Restore "${label}" to the vault?`)) return;
+      try {
+        const res = await fetch('/api/wallets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'restore', id }),
+        });
+        if (res.status === 401) {
+          openAdminLogin(() => restoreWallet(id, label));
+          return;
+        }
+        const data = await res.json();
+        if (!data.ok) window.alert(`Could not restore: ${data.error || 'failed'}`);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'request failed');
+      } finally {
+        reload();
+      }
+    },
+    [reload, openAdminLogin],
+  );
+
+  const downloadBackup = useCallback(async () => {
+    try {
+      const res = await fetch('/api/wallets?backup=1', { cache: 'no-store' });
+      if (res.status === 401) {
+        openAdminLogin(() => downloadBackup());
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        window.alert(`Could not download backup: ${data.error || 'failed'}`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gd-claim-vault-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'request failed');
+    }
+  }, [openAdminLogin]);
 
   if (!status) {
     return (
@@ -217,6 +334,19 @@ export default function AppShell() {
         {nav(true)}
         <div className="sidefoot">
           <span className="muted small">{status.claimTimesUtc.length}× daily · {status.claimTimesUtc.join(", ")} UTC</span>
+          <div style={{ marginTop: 8 }}>
+            {status.adminConfigured === false ? (
+              <span className="muted small">🔒 Admin not configured</span>
+            ) : status.isAdmin ? (
+              <button type="button" className="btn" onClick={logoutAdmin}>
+                🔓 Admin · Log out
+              </button>
+            ) : (
+              <button type="button" className="btn" onClick={() => openAdminLogin(() => {})}>
+                🔒 Admin login
+              </button>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -250,6 +380,8 @@ export default function AppShell() {
               wError={wError}
               onAdd={addWallet}
               onRemove={removeWallet}
+              onRestore={restoreWallet}
+              onBackup={downloadBackup}
             />
           )}
           {tab === 'fees' && (
@@ -260,6 +392,45 @@ export default function AppShell() {
       </div>
 
       {nav(false)}
+
+      {adminOpen && (
+        <Modal title="Admin login" onClose={() => setAdminOpen(false)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitAdminLogin();
+            }}
+          >
+            <p className="muted small">
+              Needed for wallet changes, manual runs, and backups. Reads stay open without it.
+            </p>
+            <label className="field">
+              <span>Admin password</span>
+              <input
+                type="password"
+                value={adminPw}
+                onChange={(e) => setAdminPw(e.target.value)}
+                placeholder="Admin password"
+                autoComplete="current-password"
+                autoFocus
+              />
+            </label>
+            {adminError && (
+              <p className="error small" role="alert">
+                {adminError}
+              </p>
+            )}
+            <div className="modal-foot">
+              <button type="button" className="btn" onClick={() => setAdminOpen(false)} disabled={adminBusy}>
+                Cancel
+              </button>
+              <button type="submit" className="btn primary" disabled={adminBusy || !adminPw}>
+                {adminBusy ? 'Checking…' : 'Log in'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

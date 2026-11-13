@@ -865,3 +865,18 @@ details.config[open] summary::before { content: '▾'; }
 :root[data-agent-theme="light"] .agent-shell ::-webkit-scrollbar-thumb:hover { background: #aeabc4; }
 :root[data-agent-theme="light"] .agent-shell .agent-md a { color: #5a4bd1; }
 :root[data-agent-theme="light"] .agent-shell .agent-md pre { background: #17171f; color: #eceaf4; }
+
+/* ---- Claim Runner P0+P1 additions (Nov 2026) ---- */
+.seg-blocked { background: #f59e0b; }
+.alertcard { border-color: rgba(251, 191, 36, 0.45); }
+.histlist { display: flex; flex-direction: column; gap: 0; list-style: none; margin: 0; padding: 0; }
+.histrow { padding: 12px 0; border-bottom: 1px solid var(--border, rgba(255,255,255,0.08)); }
+.histrow:last-child { border-bottom: none; padding-bottom: 0; }
+.hist-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.hist-pills { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.hist-detail { margin-top: 8px; }
+.gaslist { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
+.gasrow { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border, rgba(255,255,255,0.08)); flex-wrap: wrap; }
+.gasrow:last-child { border-bottom: none; }
+.gaschips { display: flex; gap: 14px; flex-wrap: wrap; }
+.gaschip { display: inline-flex; align-items: center; gap: 7px; }

@@ -1,6 +1,13 @@
 // Wallet source: Supabase `claim_wallets` table (see supabase.sql).
 // Only CIPHERTEXT ever leaves the database. Each key is decrypted in server
 // memory at claim time using PROJECT_KEY — never logged, never sent to clients.
+//
+// Removal is SOFT since Nov 2026: deleteWallet sets deleted_at instead of
+// deleting the row, so a removed wallet (and its encrypted key) stays
+// recoverable via restoreWallet. Reads only return active rows. The
+// deleted_at column is additive — rows created before it existed read as
+// active. If the column is ever missing (migration not applied), reads
+// fall back to the unfiltered query so the vault keeps working.
 
 import { Wallet } from 'ethers';
 import { canDecrypt, decryptPrivateKey, encryptPrivateKey } from './crypto';
@@ -29,6 +36,21 @@ export interface WalletInfo {
   address: string | null;
 }
 
+export interface DeletedWalletInfo extends WalletInfo {
+  deletedAt: string | null;
+}
+
+export interface VaultBackupEntry {
+  id: string;
+  label: string;
+  chains: string;
+  address: string | null;
+  /** AES-256-GCM ciphertext — decryptable only with PROJECT_KEY. */
+  encrypted_key: string;
+  deleted_at: string | null;
+  created_at: string | null;
+}
+
 export const DEFAULT_GD_CLAIM_URL =
   'https://uiwsjxfcdruvqnbgdwdd.supabase.co/functions/v1/gd-claim';
 
@@ -51,24 +73,40 @@ export function supaEnv(): { url: string; key: string } {
   return { url, key };
 }
 
+const SUPA_TIMEOUT_MS = 30_000;
+
 interface SupaRow {
   id: string;
   label: string;
   encrypted_key: string;
   chains: string;
   address: string | null;
+  deleted_at?: string | null;
 }
 
 async function fetchRows(): Promise<SupaRow[]> {
   const { url, key } = supaEnv();
-  const res = await fetch(`${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains,address&order=created_at`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}` },
+  const base = `${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains,address,deleted_at&order=created_at`;
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  // Prefer the deleted-aware query; fall back to the legacy query if the
+  // deleted_at column doesn't exist yet (migration not applied).
+  let res = await fetch(`${base}&deleted_at=is.null`, {
+    headers,
     cache: 'no-store',
+    signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
   });
+  if (res.status === 400) {
+    res = await fetch(base, {
+      headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    });
+  }
   if (res.status === 404)
     throw new Error('claim_wallets table not found — run supabase.sql in the Supabase SQL editor once');
   if (!res.ok) throw new Error(`Supabase read failed: HTTP ${res.status}`);
-  return (await res.json()) as SupaRow[];
+  const rows = (await res.json()) as SupaRow[];
+  return rows.filter((r) => !r.deleted_at);
 }
 
 function toChains(raw: string, fallback: string[]): string[] {
@@ -129,6 +167,7 @@ export async function ensureAddresses(): Promise<number> {
           method: 'PATCH',
           headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
           cache: 'no-store',
+          signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
           body: JSON.stringify({ address }),
         });
         if (res.ok) filled++;
@@ -141,8 +180,26 @@ export async function ensureAddresses(): Promise<number> {
   return filled;
 }
 
-/** Encrypt + store a new wallet. Key format is validated; never stored raw. */
-export async function addWallet(input: { label: string; privateKey: string; chains: string[] }): Promise<void> {
+async function fetchActiveLabels(): Promise<string[]> {
+  const { url, key } = supaEnv();
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  const base = `${url}/rest/v1/claim_wallets?select=label,deleted_at`;
+  let res = await fetch(`${base}&deleted_at=is.null`, {
+    headers,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+  });
+  if (res.status === 400) {
+    res = await fetch(base, { headers, cache: 'no-store', signal: AbortSignal.timeout(SUPA_TIMEOUT_MS) });
+  }
+  if (!res.ok) return [];
+  const rows = (await res.json()) as { label: string; deleted_at?: string | null }[];
+  return rows.filter((r) => !r.deleted_at).map((r) => r.label);
+}
+
+/** Encrypt + store a new wallet. Key format is validated; never stored raw.
+ *  Returns the new row id. */
+export async function addWallet(input: { label: string; privateKey: string; chains: string[] }): Promise<string> {
   const label = (input.label || '').trim();
   const pk = (input.privateKey || '').trim();
   if (!label) throw new Error('wallet name is required');
@@ -150,16 +207,11 @@ export async function addWallet(input: { label: string; privateKey: string; chai
   const chains = (input.chains || []).map((c) => c.trim().toLowerCase()).filter(Boolean);
   if (chains.length === 0) throw new Error('select at least one chain');
   const { url, key } = supaEnv();
-  // Reject duplicate names (case-insensitive) so the dashboard stays unambiguous.
-  const existing = await fetch(`${url}/rest/v1/claim_wallets?select=label`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}` },
-    cache: 'no-store',
-  });
-  if (existing.ok) {
-    const rows = (await existing.json()) as { label: string }[];
-    if (rows.some((r) => r.label.toLowerCase() === label.toLowerCase())) {
-      throw new Error(`a wallet named "${label}" already exists`);
-    }
+  // Reject duplicate names among ACTIVE wallets (case-insensitive) so the
+  // dashboard stays unambiguous. A removed wallet's name can be reused.
+  const existing = await fetchActiveLabels();
+  if (existing.some((l) => l.toLowerCase() === label.toLowerCase())) {
+    throw new Error(`a wallet named "${label}" already exists`);
   }
   const res = await fetch(`${url}/rest/v1/claim_wallets`, {
     method: 'POST',
@@ -167,8 +219,10 @@ export async function addWallet(input: { label: string; privateKey: string; chai
       apikey: key,
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
+      Prefer: 'return=representation',
     },
     cache: 'no-store',
+    signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
     body: JSON.stringify({
       label,
       encrypted_key: encryptPrivateKey(pk),
@@ -179,18 +233,113 @@ export async function addWallet(input: { label: string; privateKey: string; chai
   if (res.status === 404)
     throw new Error('claim_wallets table not found — run supabase.sql in the Supabase SQL editor once');
   if (!res.ok) throw new Error(`Supabase insert failed: HTTP ${res.status}`);
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  return rows?.[0]?.id ?? '';
 }
 
-/** Remove a wallet from the vault. */
-export async function deleteWallet(id: string): Promise<void> {
+/** Soft-remove a wallet from the vault: sets deleted_at, keeps the row
+ *  (and its encrypted key) for restore. Returns the wallet label for audit. */
+export async function deleteWallet(id: string): Promise<string> {
   if (!id) throw new Error('wallet id is required');
   const { url, key } = supaEnv();
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  let label = '';
+  try {
+    const lookup = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(id)}&select=label`, {
+      headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    });
+    if (lookup.ok) {
+      const rows = (await lookup.json()) as { label: string }[];
+      label = rows?.[0]?.label ?? '';
+    }
+  } catch {
+    /* label lookup is best-effort; the delete still proceeds */
+  }
   const res = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: { apikey: key, Authorization: `Bearer ${key}` },
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
     cache: 'no-store',
+    signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    body: JSON.stringify({ deleted_at: new Date().toISOString() }),
   });
-  if (!res.ok) throw new Error(`Supabase delete failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Supabase remove failed: HTTP ${res.status}`);
+  return label;
+}
+
+/** Restore a soft-removed wallet. Returns its label for audit. */
+export async function restoreWallet(id: string): Promise<string> {
+  if (!id) throw new Error('wallet id is required');
+  const { url, key } = supaEnv();
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  let label = '';
+  try {
+    const lookup = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(id)}&select=label`, {
+      headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    });
+    if (lookup.ok) {
+      const rows = (await lookup.json()) as { label: string }[];
+      label = rows?.[0]?.label ?? '';
+    }
+  } catch {
+    /* label lookup is best-effort */
+  }
+  const res = await fetch(`${url}/rest/v1/claim_wallets?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    body: JSON.stringify({ deleted_at: null }),
+  });
+  if (!res.ok) throw new Error(`Supabase restore failed: HTTP ${res.status}`);
+  return label;
+}
+
+/** Removed wallets (metadata only — keys never leave the vault). */
+export async function listDeletedWallets(): Promise<DeletedWalletInfo[]> {
+  const { url, key } = supaEnv();
+  const res = await fetch(
+    `${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains,address,deleted_at&deleted_at=not.is.null&order=deleted_at.desc`,
+    {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    },
+  );
+  if (res.status === 400) return []; // column missing: nothing was ever soft-deleted
+  if (!res.ok) throw new Error(`Supabase read failed: HTTP ${res.status}`);
+  const rows = (await res.json()) as SupaRow[];
+  const fallback = getChains();
+  return rows.map((r, i) => ({
+    id: r.id,
+    label: r.label || `Wallet ${i + 1}`,
+    chains: toChains(r.chains, fallback),
+    keyOk: canDecrypt(r.encrypted_key),
+    address: r.address || null,
+    deletedAt: r.deleted_at ?? null,
+  }));
+}
+
+/**
+ * Encrypted vault backup: ciphertext rows only (admin-only endpoint).
+ * Useless without PROJECT_KEY — which is exactly the point: the backup
+ * can be stored offline safely, and restoring needs the key + this file.
+ */
+export async function getVaultBackup(): Promise<VaultBackupEntry[]> {
+  const { url, key } = supaEnv();
+  const res = await fetch(
+    `${url}/rest/v1/claim_wallets?select=id,label,encrypted_key,chains,address,deleted_at,created_at&order=created_at`,
+    {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SUPA_TIMEOUT_MS),
+    },
+  );
+  if (!res.ok) throw new Error(`Supabase read failed: HTTP ${res.status}`);
+  return (await res.json()) as VaultBackupEntry[];
 }
 
 export function isDbConfigured(): boolean {
