@@ -28,7 +28,7 @@ touches `app/agent/`, `app/api/agent/`, `lib/agent/`.)
 2. The first tick at/after each time in `CLAIM_TIMES_UTC` (e.g. `14:00,18:00,22:00`) with that
    slot due starts `runAllWallets()` **in the background**; the tick responds immediately.
 3. **Phase 1 — fee guard + gas monitor (concurrent, neither fatal):** each wallet's CELO
-   balance is checked; below `0.25` CELO → `fundGas` via the GoodDollar faucet (address-only),
+   balance is checked; below `0.15` CELO → `fundGas` via the GoodDollar faucet (address-only),
    wait 30s, re-check (twice) — a top-up only counts when the balance actually rises. The gas
    monitor reads all-chain native balances via RPC and flags shortages.
 4. **Phase 2 — claims:** per wallet × chain: `status` → `blocked` if not whitelisted
@@ -100,7 +100,7 @@ A "Refresh balances" button re-fetches on demand.
 | `GD_CLAIM_URL` | no | gd-claim function endpoint |
 | `CLAIM_TIME_UTC` | no | Legacy single run time (`18:00`) — used only if `CLAIM_TIMES_UTC` is unset |
 | `CLAIM_TIMES_UTC` | no | Comma-separated daily run times, UTC (`14:00,18:00,22:00` = 3x a day, 4h apart) |
-| `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.25`; live claim cost ~0.194 CELO) |
+| `FEE_THRESHOLD_CELO` | no | Faucet top-up threshold (`0.15`; live claim cost ~0.194 CELO — below one claim's cost, so wallets at 0.15–0.19 rely on the runner's on-demand `fundGas` at claim time) |
 | `FEE_THRESHOLD_FUSE` | no | Gas-monitor low threshold (`0.01`; observed claim needs 0.0047–0.0087 FUSE) |
 | `FEE_THRESHOLD_XDC` | no | Gas-monitor low threshold (`0.01`; endpoint fee data ~0.0057 XDC) |
 | `ADMIN_PASSWORD` | yes | 32+ chars; gates destructive dashboard endpoints (Render env only, not in render.yaml) |

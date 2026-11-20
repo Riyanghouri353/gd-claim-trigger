@@ -21,7 +21,7 @@ services:
       - key: CLAIM_TIMES_UTC
         value: "14:00,18:00,22:00"
       - key: FEE_THRESHOLD_CELO
-        value: "0.25"
+        value: "0.15"
       - key: FEE_THRESHOLD_FUSE
         value: "0.01"
       - key: FEE_THRESHOLD_XDC
